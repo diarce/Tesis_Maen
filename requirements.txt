@@ -1,0 +1,20 @@
+# requirements.txt — Dependencias del sistema de auditoría académica
+# Instalar con: pip install -r requirements.txt
+
+# HTTP y scraping
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+
+# Scraping de sitios con JavaScript (opcional, para dynamic=True)
+playwright>=1.40.0
+# Nota: tras instalar, ejecutar: playwright install chromium
+
+# Análisis de datos
+pandas>=2.0.0
+
+# Base de datos (sqlite3 es built-in, no requiere instalación)
+# La librería sqlite3 ya viene incluida en Python ≥ 3.4
+
+# Utilidades
+python-dateutil>=2.8.0

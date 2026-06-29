@@ -1,0 +1,140 @@
+[
+  {
+    "id": "MAK001",
+    "name": "Makro Argentina",
+    "base_url": "https://www.makro.com.ar",
+    "platform": "VTEX",
+    "tipo": "Nacional",
+    "rubro": "Consumo masivo / Mayorista general",
+    "provincias": ["todas"],
+    "dynamic": true,
+    "descripcion": "Cadena de hipermercados mayoristas con presencia nacional. Requiere registro previo.",
+    "selectors": {
+      "product_card": "[class*='productSummary'], .vtex-product-summary",
+      "product_name": "[class*='nameContainer'], [class*='productBrand']",
+      "product_price": "[class*='sellingPrice'], [class*='spotPrice']",
+      "product_image": "[class*='productImage'] img",
+      "stock_indicator": "[class*='availability']",
+      "search_input": "input[class*='searchInput']",
+      "add_to_cart": "button[class*='buyButton']",
+      "breadcrumb": "[class*='breadcrumb']",
+      "category_links": "nav a[href*='/c']",
+      "cart_count": "[class*='cartQuantity']"
+    }
+  },
+  {
+    "id": "VIT001",
+    "name": "Vital Mayorista",
+    "base_url": "https://www.vital.com.ar",
+    "platform": "Custom",
+    "tipo": "Nacional",
+    "rubro": "Consumo masivo / Alimentos y bebidas",
+    "provincias": ["Buenos Aires", "Córdoba", "Santa Fe"],
+    "dynamic": false,
+    "descripcion": "Distribuidor mayorista de alimentos y bebidas con cobertura en el centro del país.",
+    "selectors": {
+      "product_card": ".product-item, li.item.product",
+      "product_name": ".product-item-name, .product-name",
+      "product_price": ".price, [data-price-type='finalPrice']",
+      "product_image": ".product-image-photo",
+      "stock_indicator": ".stock, .availability",
+      "search_input": "#search, input[name='q']",
+      "add_to_cart": "button.tocart, #product-addtocart-button",
+      "breadcrumb": ".breadcrumbs",
+      "category_links": "#nav a, .nav-primary a",
+      "cart_count": ".counter-number"
+    }
+  },
+  {
+    "id": "DIA001",
+    "name": "DIA% Mayorista",
+    "base_url": "https://diaonline.supermercadosdia.com.ar",
+    "platform": "Custom",
+    "tipo": "Nacional",
+    "rubro": "Consumo masivo / Supermercadismo",
+    "provincias": ["Buenos Aires", "CABA", "Córdoba", "Santa Fe", "Tucumán"],
+    "dynamic": true,
+    "descripcion": "Cadena de supermercados con opciones de compra mayorista online.",
+    "selectors": {
+      "product_card": ".product-summary, [class*='product-card']",
+      "product_name": "[class*='product-name'], h2.name",
+      "product_price": "[class*='product-price'], .price",
+      "product_image": ".product-image img",
+      "stock_indicator": "[class*='stock-status']",
+      "search_input": "input[type='search'], input[placeholder*='busca']",
+      "add_to_cart": "button[class*='add-to-cart']",
+      "breadcrumb": "nav[aria-label*='bread']",
+      "category_links": "nav a[href*='/categoria']",
+      "cart_count": "[class*='cart-count']"
+    }
+  },
+  {
+    "id": "CHI001",
+    "name": "Changomas / Walmart AR",
+    "base_url": "https://www.walmart.com.ar",
+    "platform": "Custom",
+    "tipo": "Nacional",
+    "rubro": "Consumo masivo / Hipermercado",
+    "provincias": ["Buenos Aires", "CABA", "Córdoba", "Mendoza", "Tucumán"],
+    "dynamic": true,
+    "descripcion": "Hipermercado con sección mayorista y compras por volumen.",
+    "selectors": {
+      "product_card": "[class*='product-card'], [data-testid*='product']",
+      "product_name": "[class*='product-name'], h2",
+      "product_price": "[class*='price'], [data-testid*='price']",
+      "product_image": "[class*='product-img'] img",
+      "stock_indicator": "[class*='stock'], [class*='avail']",
+      "search_input": "input[placeholder*='busca'], [data-testid='search-input']",
+      "add_to_cart": "button[class*='add-cart'], [data-testid*='add-to-cart']",
+      "breadcrumb": "[aria-label*='breadcrumb']",
+      "category_links": "nav[class*='dept'] a, [class*='category'] a",
+      "cart_count": "[data-testid='cart-count'], [class*='cart-badge']"
+    }
+  },
+  {
+    "id": "JUM001",
+    "name": "Jumbo Online AR",
+    "base_url": "https://www.jumbo.com.ar",
+    "platform": "VTEX",
+    "tipo": "Nacional",
+    "rubro": "Consumo masivo / Supermercado premium",
+    "provincias": ["Buenos Aires", "CABA", "Córdoba", "Mendoza"],
+    "dynamic": true,
+    "descripcion": "Cadena premium con sección de productos por mayor y compras institucionales.",
+    "selectors": {
+      "product_card": "[class*='productSummary'], .product-summary",
+      "product_name": "[class*='nameContainer'], .product-name",
+      "product_price": "[class*='sellingPrice'], .price",
+      "product_image": "img[class*='product']",
+      "stock_indicator": "[class*='availab']",
+      "search_input": "input[class*='search']",
+      "add_to_cart": "button[class*='buy']",
+      "breadcrumb": "[class*='Breadcrumb']",
+      "category_links": "a[href*='/categoria'], a[href*='/c/']",
+      "cart_count": "[class*='quantity'], [class*='badge']"
+    }
+  },
+  {
+    "id": "CUS001",
+    "name": "Distribuidora personalizada",
+    "base_url": "",
+    "platform": "Custom",
+    "tipo": "Regional",
+    "rubro": "A definir",
+    "provincias": [],
+    "dynamic": false,
+    "descripcion": "Empresa mayorista a configurar manualmente.",
+    "selectors": {
+      "product_card": ".product-item, [class*='product']",
+      "product_name": "h2, h3, .product-name",
+      "product_price": ".price, [class*='price']",
+      "product_image": "img",
+      "stock_indicator": "[class*='stock'], [class*='avail']",
+      "search_input": "input[type='search'], input[name='q']",
+      "add_to_cart": "button[class*='cart'], button[class*='add']",
+      "breadcrumb": ".breadcrumb, nav[aria-label*='bread']",
+      "category_links": "nav a",
+      "cart_count": "[class*='cart']"
+    }
+  }
+]
