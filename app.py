@@ -274,12 +274,12 @@ def preview_config_py(sites: list, cfg: dict) -> str:
 
 def render_sidebar():
     with st.sidebar:
-        st.markdown("## 🛒 AuditMayorista")
+        st.markdown("## Auditoria Mayorista")
         st.caption("Sistema académico de auditoría")
         st.divider()
 
         # ── PASO 1: ZONA GEOGRÁFICA ────────────────────────────────────────────
-        st.markdown('<div class="step-header">📍 PASO 1 — Zona geográfica</div>', unsafe_allow_html=True)
+        st.markdown('<div class="step-header"> PASO 1 — Zona geográfica</div>', unsafe_allow_html=True)
 
         provincia = st.selectbox(
             "Provincia",
@@ -299,7 +299,7 @@ def render_sidebar():
         )
 
         # ── PASO 2: EMPRESAS ───────────────────────────────────────────────────
-        st.markdown('<div class="step-header">🏢 PASO 2 — Empresas a auditar</div>', unsafe_allow_html=True)
+        st.markdown('<div class="step-header"> PASO 2 — Empresas a auditar</div>', unsafe_allow_html=True)
 
         # Sub-tab: buscar conocidas / agregar manual
         modo = st.radio(
@@ -315,7 +315,7 @@ def render_sidebar():
             _sidebar_empresa_manual(provincia, localidades_sel)
 
         # ── PASO 3: PARÁMETROS ─────────────────────────────────────────────────
-        st.markdown('<div class="step-header">⚙️ PASO 3 — Parámetros</div>', unsafe_allow_html=True)
+        st.markdown('<div class="step-header"> PASO 3 — Parámetros</div>', unsafe_allow_html=True)
 
         st.session_state.selected_dims = st.multiselect(
             "Dimensiones a auditar",
@@ -350,17 +350,17 @@ def render_sidebar():
 
         col_a, col_b = st.columns(2)
         with col_a:
-            if st.button("💾 Guardar config", use_container_width=True, disabled=n == 0):
+            if st.button(" Guardar config", use_container_width=True, disabled=n == 0):
                 _save_config()
         with col_b:
-            if st.button("🔄 Demo", use_container_width=True):
+            if st.button(" Demo", use_container_width=True):
                 _run_demo()
 
-        if st.button("▶️  INICIAR AUDITORÍA", type="primary",
+        if st.button("  INICIAR AUDITORÍA", type="primary",
                      use_container_width=True, disabled=n == 0):
             _run_audit()
 
-        if st.button("🌐  INICIAR SCRAPING", use_container_width=True, disabled=n == 0):
+        if st.button(" INICIAR SCRAPING", use_container_width=True, disabled=n == 0):
             _run_scraping()
 
 
@@ -403,7 +403,7 @@ def _sidebar_empresa_manual(provincia: str, localidades: list):
         rubro    = st.text_input("Rubro", placeholder="Consumo masivo / Alimentos")
         dynamic  = st.checkbox("Sitio con JavaScript dinámico", value=False,
                                help="Activo si el catálogo no aparece sin JS (requiere Playwright)")
-        submitted = st.form_submit_button("➕ Agregar empresa", use_container_width=True)
+        submitted = st.form_submit_button(" Agregar empresa", use_container_width=True)
 
     if submitted:
         if not name or not base_url:
@@ -552,17 +552,17 @@ def render_main():
     # Header
     st.markdown("""
     <div class="app-header">
-      <h1>🛒 AuditMayorista</h1>
+      <h1> Auditoria Mayorista</h1>
       <p>Sistema académico de relevamiento y auditoría del proceso de compra en mayoristas de consumo masivo</p>
     </div>
     """, unsafe_allow_html=True)
 
     tab_labels = [
-        "📋 Empresas",
-        "⚙️ Configuración",
-        "▶️ Auditoría",
-        "📊 Resultados QA",
-        "🗃️ Datos Scraping",
+        "Empresas",
+        "Configuración",
+        "Auditoría",
+        "Resultados QA",
+        "Datos Scraping",
     ]
     tabs = st.tabs(tab_labels)
 
@@ -580,7 +580,7 @@ def tab_empresas():
     n = len(st.session_state.companies)
     if n == 0:
         st.info(
-            "👈 Usá el panel lateral para agregar empresas mayoristas.\n\n"
+            "Usá el panel lateral para agregar empresas mayoristas.\n\n"
             "Podés seleccionar de la base de datos de empresas conocidas "
             "o ingresar una nueva de forma manual."
         )
@@ -623,9 +623,9 @@ def tab_empresas():
                     unsafe_allow_html=True
                 )
             with col3:
-                st.caption(f"📍 {company.get('region','—')}")
+                st.caption(f" {company.get('region','—')}")
             with col4:
-                js_icon = "⚡ JS dinámico" if company.get("dynamic") else "📄 HTML estático"
+                js_icon = " JS dinámico" if company.get("dynamic") else " HTML estático"
                 st.caption(js_icon)
             with col_del:
                 if st.button("🗑", key=f"del_{i}", help="Eliminar empresa"):
@@ -644,7 +644,7 @@ def tab_empresas():
     } for c in st.session_state.companies])
 
     st.download_button(
-        "⬇️  Descargar lista como CSV",
+        " Descargar lista como CSV",
         data=df.to_csv(index=False, encoding="utf-8"),
         file_name=f"muestra_empresas_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",
@@ -668,17 +668,17 @@ def tab_configuracion():
     col_l, col_r = st.columns([1, 1])
 
     with col_l:
-        st.markdown("#### 🗺️ Resumen de la muestra")
+        st.markdown("#### Resumen de la muestra")
         for s in sites:
             st.markdown(
                 f"**{s['name']}** `{s['id']}`  \n"
-                f"🔗 {s['base_url']}  \n"
-                f"🖥 `{s['platform']}` · {'⚡ Dinámico' if s['dynamic'] else '📄 Estático'}  \n"
-                f"📍 {s.get('region','—')}"
+                f" {s['base_url']}  \n"
+                f" `{s['platform']}` · {'⚡ Dinámico' if s['dynamic'] else '📄 Estático'}  \n"
+                f" {s.get('region','—')}"
             )
             st.markdown("---")
 
-        st.markdown("#### ⚙️ Parámetros de scraping")
+        st.markdown("####  Parámetros de scraping")
         st.markdown(f"""
 | Parámetro | Valor |
 |---|---|
@@ -688,7 +688,7 @@ def tab_configuracion():
 | User-Agent | Académico |
 | Snapshots temporales | `3 cortes` (0 / 7 / 14 días) |
 """)
-        st.markdown("#### 📐 Dimensiones seleccionadas")
+        st.markdown("#### Dimensiones seleccionadas")
         dims_desc = {
             "D1":"Estructura y navegación","D2":"Registro y autenticación",
             "D3":"Ficha de producto","D4":"Carrito de compras",
@@ -699,25 +699,25 @@ def tab_configuracion():
             st.markdown(f"- **{d}** — {dims_desc.get(d,'')}")
 
     with col_r:
-        st.markdown("#### 📄 Código generado para `config.py`")
+        st.markdown("####  Código generado para `config.py`")
         code_preview = preview_config_py(sites, cfg)
         st.code(code_preview, language="python")
 
         col_copy, col_save = st.columns(2)
         with col_copy:
             st.download_button(
-                "⬇️  Descargar config.py",
+                " Descargar config.py",
                 data=code_preview,
                 file_name="runtime_config.py",
                 mime="text/plain",
                 use_container_width=True,
             )
         with col_save:
-            if st.button("💾 Guardar runtime_sites.json", use_container_width=True):
+            if st.button(" Guardar runtime_sites.json", use_container_width=True):
                 _save_config()
                 st.success("✓ Guardado")
 
-        st.markdown("#### 📋 Casos de prueba QA (muestra)")
+        st.markdown("#### Casos de prueba QA (muestra)")
         from config import QA_TEST_CASES, QA_DIMENSIONS
         total_cases = sum(len(v) for k, v in QA_TEST_CASES.items()
                           if k in st.session_state.selected_dims)
@@ -741,15 +741,15 @@ def tab_auditoria():
 
     col_btn1, col_btn2, col_btn3 = st.columns([2, 2, 3])
     with col_btn1:
-        if st.button("▶️ Auditoría QA", type="primary", use_container_width=True,
+        if st.button(" Auditoría QA", type="primary", use_container_width=True,
                      disabled=len(st.session_state.companies)==0):
             _run_audit()
     with col_btn2:
-        if st.button("🌐 Scraping", use_container_width=True,
+        if st.button(" Scraping", use_container_width=True,
                      disabled=len(st.session_state.companies)==0):
             _run_scraping()
     with col_btn3:
-        if st.button("🎭 Ejecutar DEMO (sin internet)", use_container_width=True):
+        if st.button(" Ejecutar DEMO (sin internet)", use_container_width=True):
             _run_demo()
 
     st.markdown("---")
@@ -758,22 +758,22 @@ def tab_auditoria():
     col_qa, col_sc = st.columns(2)
     with col_qa:
         if st.session_state.audit_done:
-            st.success("✅ Auditoría QA completada")
+            st.success(" Auditoría QA completada")
         else:
-            st.warning("⏳ Auditoría QA pendiente")
+            st.warning(" Auditoría QA pendiente")
     with col_sc:
         if st.session_state.scrape_done:
-            st.success("✅ Scraping completado")
+            st.success(" Scraping completado")
         else:
-            st.warning("⏳ Scraping pendiente")
+            st.warning(" Scraping pendiente")
 
     # Log en tiempo real
-    st.markdown("#### 📟 Log de ejecución")
+    st.markdown("####  Log de ejecución")
     if st.session_state.audit_log:
         log_text = "\n".join(st.session_state.audit_log[-80:])
         st.code(log_text, language=None)
         st.download_button(
-            "⬇️ Descargar log completo",
+            " Descargar log completo",
             data="\n".join(st.session_state.audit_log),
             file_name=f"log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
             mime="text/plain",
@@ -782,21 +782,21 @@ def tab_auditoria():
         st.info("El log de ejecución aparecerá aquí cuando se inicie el proceso.")
 
     # Guía de procesos
-    with st.expander("📖 ¿Qué hace cada proceso?", expanded=False):
+    with st.expander(" ¿Qué hace cada proceso?", expanded=False):
         st.markdown("""
-**Auditoría QA** (`▶️ Auditoría QA`)
+**Auditoría QA** (` Auditoría QA`)
 - Navega el sitio usando `requests` + `BeautifulSoup`
 - Verifica cada caso de prueba de las 8 dimensiones configuradas
 - No realiza compras reales ni ingresa datos sensibles
 - Guarda los resultados en la base de datos SQLite
 
-**Scraping** (`🌐 Scraping`)
+**Scraping** (` Scraping`)
 - Extrae el catálogo de productos (nombre, precio, categoría, stock)
 - Respeta `robots.txt` y el rate limit configurado
 - Almacena el primer snapshot temporal (el día 0)
 - Repetir el proceso en 7 y 14 días para análisis de variación
 
-**Demo** (`🎭 Ejecutar DEMO`)
+**Demo** (` Ejecutar DEMO`)
 - Genera datos simulados realistas de 3 sitios mayoristas argentinos
 - No requiere conexión a internet
 - Sirve para verificar el funcionamiento del sistema y el informe
@@ -821,14 +821,14 @@ def tab_resultados():
     if not scores:
         st.info(
             "Aún no hay resultados de auditoría.\n\n"
-            "Iniciá el proceso desde el panel lateral o la pestaña **▶️ Auditoría**."
+            "Iniciá el proceso desde el panel lateral o la pestaña ** Auditoría**."
         )
         return
 
     from modules.reporter import build_anon_map
     # Toggle de anonimización — para uso interno/externo del informe
     anonimizar = st.toggle(
-        "🔒 Anonimizar sitios (modo informe académico)",
+        " Anonimizar sitios (modo informe académico)",
         value=True,
         help="Reemplaza los nombres reales por 'Sitio Auditado N' para proteger la identidad de las organizaciones."
     )
@@ -837,7 +837,7 @@ def tab_resultados():
         st.caption("Los nombres de las organizaciones han sido anonimizados.")
     else:
         site_map = {s["id"]: s["name"] for s in sites}
-        st.caption("⚠ Modo interno — mostrando nombres reales. No publicar.")
+        st.caption(" Modo interno — mostrando nombres reales. No publicar.")
     dim_ids  = sorted(QA_DIMENSIONS.keys())
 
     # ── Métricas globales ──────────────────────────────────────────────────────
@@ -866,7 +866,7 @@ def tab_resultados():
     st.markdown("---")
 
     # ── Matriz de cumplimiento ─────────────────────────────────────────────────
-    st.markdown("#### 🧮 Matriz de cumplimiento por sitio y dimensión")
+    st.markdown("####  Matriz de cumplimiento por sitio y dimensión")
 
     by_site: dict[str, dict] = {}
     for row in scores:
@@ -907,7 +907,7 @@ def tab_resultados():
 
     # ── Detalle por dimensión ──────────────────────────────────────────────────
     st.markdown("---")
-    st.markdown("#### 🔍 Detalle por dimensión")
+    st.markdown("####  Detalle por dimensión")
 
     by_site_dim: dict = {}
     for r in results:
@@ -949,11 +949,11 @@ def tab_resultados():
 
     # ── Exportar y descargar informe ───────────────────────────────────────────
     st.markdown("---")
-    st.markdown("#### 📤 Exportar informe")
+    st.markdown("####  Exportar informe")
     col_e1, col_e2, col_e3 = st.columns(3)
 
     with col_e1:
-        if st.button("🌐 Generar informe HTML", use_container_width=True):
+        if st.button(" Generar informe HTML", use_container_width=True):
             try:
                 from modules.reporter import HTMLReporter
                 reporter = HTMLReporter(db)
@@ -961,7 +961,7 @@ def tab_resultados():
                 with open(html_path, "r", encoding="utf-8") as f:
                     html_content = f.read()
                 st.download_button(
-                    "⬇️ Descargar HTML",
+                    " Descargar HTML",
                     data=html_content,
                     file_name=html_path.name,
                     mime="text/html",
@@ -971,7 +971,7 @@ def tab_resultados():
                 st.error(str(exc))
 
     with col_e2:
-        if st.button("📊 Exportar CSV completo", use_container_width=True):
+        if st.button(" Exportar CSV completo", use_container_width=True):
             try:
                 from modules.reporter import CSVReporter
                 from config import CSV_DIR
@@ -986,7 +986,7 @@ def tab_resultados():
         if results:
             df_exp = pd.DataFrame(results)
             st.download_button(
-                "⬇️ Descargar resultados QA",
+                " Descargar resultados QA",
                 data=df_exp.to_csv(index=False, encoding="utf-8"),
                 file_name=f"audit_results_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv",
@@ -1084,7 +1084,7 @@ def tab_scraping():
     # ── Variación de precios ───────────────────────────────────────────────────
     if history:
         st.markdown("---")
-        st.markdown("#### 📈 Variación de precios entre snapshots")
+        st.markdown("#### Variación de precios entre snapshots")
 
         df_h     = pd.DataFrame(history)
         df_pivot = (
@@ -1119,7 +1119,7 @@ def tab_scraping():
     # ── Descarga ───────────────────────────────────────────────────────────────
     st.markdown("---")
     st.download_button(
-        "⬇️ Descargar productos (CSV)",
+        " Descargar productos (CSV)",
         data=df_view.to_csv(index=False, encoding="utf-8"),
         file_name=f"productos_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",
