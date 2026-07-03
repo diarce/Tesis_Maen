@@ -24,8 +24,8 @@ sys.path.insert(0, str(ROOT))
 
 # ── Configuración de página ────────────────────────────────────────────────────
 st.set_page_config(
-    page_title = "AuditMayorista — Herramienta Académica",
-    page_icon  = "📋",
+    page_title = "Auditoria Mayorista — Herramienta Académica",
+    page_icon  = "",
     layout     = "wide",
     initial_sidebar_state = "collapsed",
 )
@@ -46,7 +46,7 @@ html, body, [class*="css"] {
 
 /* Contenedor principal */
 .block-container {
-    padding-top: 1.4rem !important;
+    padding-top: 2.4rem !important;
     padding-bottom: 2rem !important;
     max-width: 1280px;
 }
@@ -587,20 +587,20 @@ def _grupo_ejecucion():
     st.write("")
 
     # Auditoría QA
-    if st.button("▶  Iniciar auditoría QA",
+    if st.button("Iniciar auditoría QA",
                  type             = "primary",
                  use_container_width = True,
                  disabled         = not ok):
         _run_audit()
 
     # Scraping
-    if st.button("◆  Iniciar scraping de catálogo",
+    if st.button("Iniciar scraping de catálogo",
                  use_container_width = True,
                  disabled = not ok):
         _run_scraping()
 
     # Demo
-    if st.button("○  Ejecutar demo (sin internet)",
+    if st.button("Ejecutar demo (sin internet)",
                  use_container_width = True):
         _run_demo()
 
@@ -622,7 +622,7 @@ def _grupo_ejecucion():
         cfg   = {"rate_limit": st.session_state.rate_limit,
                  "max_products": st.session_state.max_products}
         st.download_button(
-            "⬇  Descargar config.py",
+            "Descargar config.py",
             data      = preview_config_py(sites, cfg),
             file_name = "runtime_config.py",
             mime      = "text/plain",
@@ -729,11 +729,7 @@ def _panel_qa():
         return "color: #555; font-style: italic;"
 
     cols_num = [c for c in df_m.columns if c not in ("Sitio",)]
-    styled = (
-        df_m.style
-        .map(_estilo_score, subset=cols_num)
-        .format({c: "{:.2f}" for c in cols_num}, na_rep="—")
-    )
+    styled = (df_m.style.map(_estilo_score, subset=cols_num).format({c: "{:.2f}" for c in cols_num}, na_rep="—"))
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
     st.markdown(
@@ -1015,7 +1011,7 @@ def _panel_exportar():
 # ── Encabezado de página ──────────────────────────────────────────────────────
 st.markdown(
     '<div class="pag-titulo">'
-    'Sistema de Auditoría del Proceso de Compra — Comercio Electrónico Mayorista'
+    'Sistema de Auditoría de E-Commerce Mayorista de Consumo Masivo'
     '</div>',
     unsafe_allow_html=True,
 )
