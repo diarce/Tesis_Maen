@@ -200,7 +200,7 @@ class StreamlitLogHandler(logging.Handler):
     """Redirige logging estándar de Python al log de sesión de Streamlit."""
     def emit(self, record):
         icons = {logging.DEBUG: "·", logging.INFO: "ℹ",
-                 logging.WARNING: "⚠", logging.ERROR: "✗"}
+                 logging.WARNING: "⚠", logging.ERROR: "E"}
         ts   = datetime.now().strftime("%H:%M:%S")
         icon = icons.get(record.levelno, "·")
         st.session_state.audit_log.append(f"[{ts}] {icon} {self.format(record)}")
@@ -217,7 +217,7 @@ def install_log_handler():
 
 
 def add_log(msg: str, level: str = "INFO"):
-    icons = {"INFO": "ℹ", "OK": "✓", "WARN": "⚠", "ERR": "✗"}
+    icons = {"INFO": "", "OK": "", "WARN": "", "ERR": ""}
     ts    = datetime.now().strftime("%H:%M:%S")
     st.session_state.audit_log.append(
         f"[{ts}] {icons.get(level, '·')} {msg}"
@@ -268,7 +268,7 @@ def write_runtime_json(sites: list) -> Path:
 def preview_config_py(sites: list, cfg: dict) -> str:
     """Genera el texto Python equivalente de config.SITES."""
     lines = [
-        "# Configuracion generada por AuditMayorista",
+        "# Configuracion generada por Auditoria Mayorista",
         "# " + datetime.now().isoformat(), "",
         "SITES = [",
     ]
@@ -319,9 +319,14 @@ def _run_demo():
     add_log("Iniciando modo demostración (datos simulados).", "INFO")
     try:
         from modules.storage import DatabaseManager
-        from modules.demo    import run_demo
+        from modules.demo    import _SIMULATED_SITES, run_demo
         from config          import DB_PATH
-        run_demo(DatabaseManager(DB_PATH))
+        db = DatabaseManager(DB_PATH)
+        # Purgar datos previos de los sitios simulados para evitar duplicación
+        for s in _SIMULATED_SITES:
+            db.clear_site_results(s["id"])
+            add_log(f"Datos previos eliminados: {s['id']}", "INFO")
+        run_demo(db)
         st.session_state.audit_done  = True
         st.session_state.scrape_done = True
         st.session_state.panel       = "qa"
@@ -349,7 +354,11 @@ def _run_audit():
         from modules.auditor import AuditEngine
         from config          import DB_PATH
         db = DatabaseManager(DB_PATH)
-        db.upsert_site(sites[0]) if sites else None
+        # Purgar resultados previos de cada sitio para evitar duplicación
+        for s in sites:
+            db.upsert_site(s)
+            db.clear_site_results(s["id"])
+            add_log(f"Datos previos eliminados: {s['id']}", "INFO")
         AuditEngine(db).run(
             dimension_filter = st.session_state.get("selected_dims") or None,
             dry_run          = False,
@@ -380,7 +389,13 @@ def _run_scraping():
         from modules.storage import DatabaseManager
         from modules.scraper import ScrapingEngine
         from config          import DB_PATH
-        ScrapingEngine(DatabaseManager(DB_PATH)).run(
+        db = DatabaseManager(DB_PATH)
+        # Purgar datos de catálogo previos para evitar acumulación entre corridas
+        for s in sites:
+            db.upsert_site(s)
+            db.clear_site_results(s["id"])
+            add_log(f"Datos previos eliminados: {s['id']}", "INFO")
+        ScrapingEngine(db).run(
             snapshot_number = 1,
             sites_override  = sites,
         )
@@ -456,33 +471,72 @@ def _grupo_muestra():
 
 
 def _empresas_base(provincia: str):
-    """Lista de empresas de la base filtradas por provincia."""
-    disponibles = [
+    """
+    Lista de empresas filtradas por provincia y, cuando el dato existe,
+    por localidad. Las empresas sin dato de localidad se incluyen por
+    cobertura provincial (ausencia de dato no implica exclusión).
+
+    La/s localidad/es seleccionada/s se registran como contexto
+    geográfico del estudio en el campo region de cada sitio auditado.
+    """
+    localidades_sel = st.session_state.get("sel_localidades", [])
+
+    # Filtro 1: cobertura provincial
+    por_provincia = [
         e for e in EMPRESAS_BASE
-        if "todas" in e.get("provincias", []) or provincia in e.get("provincias", [])
+        if "todas" in e.get("provincias", [])
+        or provincia in e.get("provincias", [])
     ]
+
+    # Filtro 2: localidad — solo cuando la empresa tiene el dato y hay selección
+    if localidades_sel:
+        disponibles = []
+        for e in por_provincia:
+            locs = e.get("localidades", [])
+            if not locs:
+                # Sin dato de localidad: se incluye (cobertura provincial asumida)
+                disponibles.append((e, False))
+            elif any(loc in locs for loc in localidades_sel):
+                # Con dato confirmado para alguna localidad seleccionada
+                disponibles.append((e, True))
+            # Si tiene dato y ninguna localidad coincide: se excluye
+    else:
+        disponibles = [(e, False) for e in por_provincia]
+
     if not disponibles:
-        st.caption("Sin empresas registradas para esta provincia.")
+        st.caption(f"Sin empresas con cobertura en {provincia}.")
         return
 
-    for emp in disponibles:
-        ya = any(c["id"] == emp["id"] for c in st.session_state.companies)
+    if localidades_sel:
+        locs_str = ", ".join(localidades_sel[:3])
+        st.markdown(
+            f'<div class="nota-met">Empresas con cobertura en <b>{provincia}</b>. '
+            f'Los registros marcados con (*) no tienen dato de localidad en la base '
+            f'y se incluyen por cobertura provincial. La/s localidad/es '
+            f'<i>{locs_str}</i> se registran como contexto geográfico del estudio.</div>',
+            unsafe_allow_html=True,
+        )
+
+    for emp, confirmada in disponibles:
+        ya     = any(c["id"] == emp["id"] for c in st.session_state.companies)
+        sufijo = "" if confirmada else (" *" if localidades_sel else "")
         col_e, col_b = st.columns([4, 1])
         with col_e:
             st.markdown(
-                f'<span style="font-size:12px"><b>{emp["name"]}</b>'
-                f'<br><span class="empresa-url">{emp["base_url"]}</span></span>',
+                f'<span style="font-size:12px"><b>{emp["name"]}{sufijo}</b>'
+                f'<br><span class="empresa-url">{emp["base_url"]}</span>'
+                f'<br><span style="font-size:11px;color:#777">'
+                f'{emp.get("tipo","—")} · {emp.get("rubro","")}</span></span>',
                 unsafe_allow_html=True,
             )
         with col_b:
             if st.button("+" if not ya else "✓",
-                         key   = f"add_{emp['id']}",
+                         key      = f"add_{emp['id']}",
                          disabled = ya,
-                         help  = "Agregar a la muestra"):
+                         help     = "Agregar a la muestra"):
                 c = dict(emp)
-                c["region"] = (
-                    f"{provincia} · "
-                    + ", ".join(st.session_state.get("sel_localidades", [])[:2])
+                c["region"] = provincia + (
+                    f" · {chr(44).join(localidades_sel[:3])}" if localidades_sel else ""
                 )
                 st.session_state.companies.append(c)
                 st.rerun()
@@ -606,8 +660,8 @@ def _grupo_ejecucion():
 
     # Estado
     st.write("")
-    qa_icon  = "✓" if st.session_state.audit_done  else "–"
-    sc_icon  = "✓" if st.session_state.scrape_done else "–"
+    qa_icon  =  "" if st.session_state.audit_done  else ""
+    sc_icon  =  ""if st.session_state.scrape_done else ""
     qa_cls   = "estado-ok" if st.session_state.audit_done  else "estado-pen"
     sc_cls   = "estado-ok" if st.session_state.scrape_done else "estado-pen"
     st.markdown(
@@ -622,7 +676,7 @@ def _grupo_ejecucion():
         cfg   = {"rate_limit": st.session_state.rate_limit,
                  "max_products": st.session_state.max_products}
         st.download_button(
-            "Descargar config.py",
+            "⬇  Descargar config.py",
             data      = preview_config_py(sites, cfg),
             file_name = "runtime_config.py",
             mime      = "text/plain",
@@ -697,10 +751,33 @@ def _panel_qa():
             unsafe_allow_html=True,
         )
 
+    # ── Filtro por estudio activo ──────────────────────────────────────────────
+    # Si hay empresas seleccionadas en sesión, mostrar solo esas.
+    # Si la lista está vacía (ej. después de demo), mostrar todas las de la BD.
+    company_ids = {c["id"] for c in st.session_state.companies}
+    sites_activos = (
+        [s for s in sites if s["id"] in company_ids]
+        if company_ids else sites
+    )
+    ids_activos = {s["id"] for s in sites_activos}
+
+    if not ids_activos:
+        st.info("Sin sitios en la muestra activa. Agregue empresas o ejecute el demo.")
+        return
+
+    # Reconstruir anon_map solo con los sitios activos
+    anon      = _anon_map(sites_activos)
+    site_map  = anon if usar_anon else {s["id"]: s["name"] for s in sites_activos}
+
     # ── Matriz de cumplimiento ─────────────────────────────────────────────────
     by_site: dict[str, dict] = {}
     for row in scores:
-        by_site.setdefault(row["site_id"], {})[row["dimension_id"]] = row
+        if row["site_id"] in ids_activos:          # solo sitios del estudio activo
+            by_site.setdefault(row["site_id"], {})[row["dimension_id"]] = row
+
+    if not by_site:
+        st.info("Sin resultados para los sitios del estudio activo.")
+        return
 
     matriz = []
     for sid, dims in by_site.items():
@@ -729,7 +806,11 @@ def _panel_qa():
         return "color: #555; font-style: italic;"
 
     cols_num = [c for c in df_m.columns if c not in ("Sitio",)]
-    styled = (df_m.style.map(_estilo_score, subset=cols_num).format({c: "{:.2f}" for c in cols_num}, na_rep="—"))
+    styled = (
+        df_m.style
+        .map(_estilo_score, subset=cols_num)
+        .format({c: "{:.2f}" for c in cols_num}, na_rep="—")
+    )
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
     st.markdown(
@@ -813,10 +894,24 @@ def _panel_catalogo():
         st.info("Sin datos de productos. Ejecute el scraping.")
         return
 
-    anon     = _anon_map(sites)
-    site_map = anon  # catálogo siempre anonimizado
+    # Filtrar por sitios del estudio activo (igual que _panel_qa)
+    company_ids   = {c["id"] for c in st.session_state.companies}
+    sites_activos = (
+        [s for s in sites if s["id"] in company_ids]
+        if company_ids else sites
+    )
+    ids_activos = {s["id"] for s in sites_activos}
+
+    anon     = _anon_map(sites_activos)
+    site_map = anon   # catálogo siempre anonimizado
 
     df = pd.DataFrame(products)
+    df = df[df["site_id"].isin(ids_activos)].copy()  # solo sitios activos
+
+    if df.empty:
+        st.info("Sin productos para los sitios del estudio activo.")
+        return
+
     df["Sitio"]     = df["site_id"].map(site_map)
     df["Descuento"] = df["has_discount"].apply(lambda x: "Sí" if x else "No")
 
@@ -1011,7 +1106,7 @@ def _panel_exportar():
 # ── Encabezado de página ──────────────────────────────────────────────────────
 st.markdown(
     '<div class="pag-titulo">'
-    'Sistema de Auditoría de E-Commerce Mayorista de Consumo Masivo'
+    'Sistema de Auditoría E-Commerce Mayorista de Consumo Masivo'
     '</div>',
     unsafe_allow_html=True,
 )
