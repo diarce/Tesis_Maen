@@ -200,7 +200,7 @@ class StreamlitLogHandler(logging.Handler):
     """Redirige logging estándar de Python al log de sesión de Streamlit."""
     def emit(self, record):
         icons = {logging.DEBUG: "·", logging.INFO: "ℹ",
-                 logging.WARNING: "⚠", logging.ERROR: "E"}
+                 logging.WARNING: "⚠", logging.ERROR: "✗"}
         ts   = datetime.now().strftime("%H:%M:%S")
         icon = icons.get(record.levelno, "·")
         st.session_state.audit_log.append(f"[{ts}] {icon} {self.format(record)}")
@@ -217,7 +217,7 @@ def install_log_handler():
 
 
 def add_log(msg: str, level: str = "INFO"):
-    icons = {"INFO": "", "OK": "", "WARN": "", "ERR": ""}
+    icons = {"INFO": "ℹ", "OK": "✓", "WARN": "⚠", "ERR": "✗"}
     ts    = datetime.now().strftime("%H:%M:%S")
     st.session_state.audit_log.append(
         f"[{ts}] {icons.get(level, '·')} {msg}"
@@ -268,7 +268,7 @@ def write_runtime_json(sites: list) -> Path:
 def preview_config_py(sites: list, cfg: dict) -> str:
     """Genera el texto Python equivalente de config.SITES."""
     lines = [
-        "# Configuracion generada por Auditoria Mayorista",
+        "# Configuracion generada por AuditMayorista",
         "# " + datetime.now().isoformat(), "",
         "SITES = [",
     ]
@@ -319,13 +319,14 @@ def _run_demo():
     add_log("Iniciando modo demostración (datos simulados).", "INFO")
     try:
         from modules.storage import DatabaseManager
-        from modules.demo    import _SIMULATED_SITES, run_demo
+        from modules.demo    import run_demo, _SIMULATED_SITES
         from config          import DB_PATH
         db = DatabaseManager(DB_PATH)
-        # Purgar datos previos de los sitios simulados para evitar duplicación
-        for s in _SIMULATED_SITES:
-            db.clear_site_results(s["id"])
-            add_log(f"Datos previos eliminados: {s['id']}", "INFO")
+        # Purgar todos los sitios existentes antes de re-ejecutar el demo
+        sitios_a_limpiar = [s["id"] for s in db.get_sites()] or [s["id"] for s in _SIMULATED_SITES]
+        for sid in sitios_a_limpiar:
+            db.clear_site_results(sid)
+            add_log(f"Datos previos eliminados: {sid}", "INFO")
         run_demo(db)
         st.session_state.audit_done  = True
         st.session_state.scrape_done = True
@@ -641,27 +642,27 @@ def _grupo_ejecucion():
     st.write("")
 
     # Auditoría QA
-    if st.button("Iniciar auditoría QA",
+    if st.button("▶  Iniciar auditoría QA",
                  type             = "primary",
                  use_container_width = True,
                  disabled         = not ok):
         _run_audit()
 
     # Scraping
-    if st.button("Iniciar scraping de catálogo",
+    if st.button("◆  Iniciar scraping de catálogo",
                  use_container_width = True,
                  disabled = not ok):
         _run_scraping()
 
     # Demo
-    if st.button("Ejecutar demo (sin internet)",
+    if st.button("○  Ejecutar demo (sin internet)",
                  use_container_width = True):
         _run_demo()
 
     # Estado
     st.write("")
-    qa_icon  =  "" if st.session_state.audit_done  else ""
-    sc_icon  =  ""if st.session_state.scrape_done else ""
+    qa_icon  = "✓" if st.session_state.audit_done  else "–"
+    sc_icon  = "✓" if st.session_state.scrape_done else "–"
     qa_cls   = "estado-ok" if st.session_state.audit_done  else "estado-pen"
     sc_cls   = "estado-ok" if st.session_state.scrape_done else "estado-pen"
     st.markdown(
@@ -751,23 +752,16 @@ def _panel_qa():
             unsafe_allow_html=True,
         )
 
-    # ── Filtro por estudio activo ──────────────────────────────────────────────
-    # Si hay empresas seleccionadas en sesión, mostrar solo esas.
-    # Si la lista está vacía (ej. después de demo), mostrar todas las de la BD.
-    company_ids = {c["id"] for c in st.session_state.companies}
-    sites_activos = (
-        [s for s in sites if s["id"] in company_ids]
-        if company_ids else sites
-    )
-    ids_activos = {s["id"] for s in sites_activos}
+    # ── Sitios a mostrar ─────────────────────────────────────────────────────
+    # Si hay empresas en sesión Y alguna coincide con la BD → mostrar esas.
+    # En cualquier otro caso (demo, sin selección, IDs distintos) → mostrar todas.
+    company_ids   = {c["id"] for c in st.session_state.companies}
+    ids_cruzados  = {s["id"] for s in sites if s["id"] in company_ids}
+    ids_activos   = ids_cruzados if ids_cruzados else {s["id"] for s in sites}
+    sites_activos = [s for s in sites if s["id"] in ids_activos]
 
-    if not ids_activos:
-        st.info("Sin sitios en la muestra activa. Agregue empresas o ejecute el demo.")
-        return
-
-    # Reconstruir anon_map solo con los sitios activos
-    anon      = _anon_map(sites_activos)
-    site_map  = anon if usar_anon else {s["id"]: s["name"] for s in sites_activos}
+    anon     = _anon_map(sites_activos)
+    site_map = anon if usar_anon else {s["id"]: s["name"] for s in sites_activos}
 
     # ── Matriz de cumplimiento ─────────────────────────────────────────────────
     by_site: dict[str, dict] = {}
@@ -776,7 +770,7 @@ def _panel_qa():
             by_site.setdefault(row["site_id"], {})[row["dimension_id"]] = row
 
     if not by_site:
-        st.info("Sin resultados para los sitios del estudio activo.")
+        st.info("Sin datos de auditoría. Ejecute el proceso primero.")
         return
 
     matriz = []
@@ -807,9 +801,7 @@ def _panel_qa():
 
     cols_num = [c for c in df_m.columns if c not in ("Sitio",)]
     styled = (
-        df_m.style
-        .map(_estilo_score, subset=cols_num)
-        .format({c: "{:.2f}" for c in cols_num}, na_rep="—")
+        df_m.style.map(estilo_score, subset=cols_num).format({c: "{:.2f}" for c in cols_num}, na_rep="—")
     )
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
@@ -894,22 +886,20 @@ def _panel_catalogo():
         st.info("Sin datos de productos. Ejecute el scraping.")
         return
 
-    # Filtrar por sitios del estudio activo (igual que _panel_qa)
+    # Sitios a mostrar: cruce con sesión; si no hay cruce, mostrar todos
     company_ids   = {c["id"] for c in st.session_state.companies}
-    sites_activos = (
-        [s for s in sites if s["id"] in company_ids]
-        if company_ids else sites
-    )
-    ids_activos = {s["id"] for s in sites_activos}
+    ids_cruzados  = {s["id"] for s in sites if s["id"] in company_ids}
+    ids_activos   = ids_cruzados if ids_cruzados else {s["id"] for s in sites}
+    sites_activos = [s for s in sites if s["id"] in ids_activos]
 
     anon     = _anon_map(sites_activos)
     site_map = anon   # catálogo siempre anonimizado
 
     df = pd.DataFrame(products)
-    df = df[df["site_id"].isin(ids_activos)].copy()  # solo sitios activos
+    df = df[df["site_id"].isin(ids_activos)].copy()
 
     if df.empty:
-        st.info("Sin productos para los sitios del estudio activo.")
+        st.info("Sin productos disponibles. Ejecute el scraping primero.")
         return
 
     df["Sitio"]     = df["site_id"].map(site_map)
@@ -1106,7 +1096,7 @@ def _panel_exportar():
 # ── Encabezado de página ──────────────────────────────────────────────────────
 st.markdown(
     '<div class="pag-titulo">'
-    'Sistema de Auditoría E-Commerce Mayorista de Consumo Masivo'
+    'Sistema de Auditoría del Proceso de Compra — Comercio Electrónico Mayorista'
     '</div>',
     unsafe_allow_html=True,
 )
