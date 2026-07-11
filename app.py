@@ -24,8 +24,8 @@ sys.path.insert(0, str(ROOT))
 
 # ── Configuración de página ────────────────────────────────────────────────────
 st.set_page_config(
-    page_title = "Auditoria Mayorista — Herramienta Académica",
-    page_icon  = "",
+    page_title = "AuditMayorista — Herramienta Académica",
+    page_icon  = "📋",
     layout     = "wide",
     initial_sidebar_state = "collapsed",
 )
@@ -46,7 +46,7 @@ html, body, [class*="css"] {
 
 /* Contenedor principal */
 .block-container {
-    padding-top: 2.4rem !important;
+    padding-top: 1.4rem !important;
     padding-bottom: 2rem !important;
     max-width: 1280px;
 }
@@ -182,8 +182,9 @@ def init_state():
         "selected_dims" : list(DIMS_LABEL.keys()),
         "rate_limit"    : 3.0,
         "max_products"  : 50,
-        "provincia_sel" : sorted(PROVINCIAS.keys())[0],
+        "provincia_sel" : "Misiones",   # Contexto del estudio: NEA — Misiones
         "panel"         : "qa",
+        "localidades_default": ["Posadas", "Garupá", "Itaembé Guazú"],
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -428,10 +429,15 @@ def _grupo_muestra():
     st.session_state.provincia_sel = provincia
 
     localidades = PROVINCIAS.get(provincia, [])
+    locs_default = [
+        loc for loc in st.session_state.get("localidades_default", [])
+        if loc in localidades
+    ] or ([localidades[0]] if localidades else [])
+
     st.multiselect(
-        "Localidad/es",
+        "Localidad/es del estudio",
         options     = localidades,
-        default     = [localidades[0]] if localidades else [],
+        default     = locs_default,
         placeholder = "Seleccionar…",
         key         = "sel_localidades",
     )
@@ -465,7 +471,7 @@ def _grupo_muestra():
                     unsafe_allow_html=True,
                 )
             with col_b:
-                if st.button("✕", key=f"rm_{i}", help="Eliminar"):
+                if st.button("X", key=f"rm_{i}", help="Eliminar"):
                     _remove_company(i)
     else:
         st.caption("Sin empresas en la muestra.")
@@ -531,7 +537,7 @@ def _empresas_base(provincia: str):
                 unsafe_allow_html=True,
             )
         with col_b:
-            if st.button("+" if not ya else "✓",
+            if st.button("Agregar" if not ya else "(agregado)",
                          key      = f"add_{emp['id']}",
                          disabled = ya,
                          help     = "Agregar a la muestra"):
@@ -591,7 +597,7 @@ def _empresa_manual(provincia: str):
 
 def _grupo_parametros():
     """Grupo 2: Parámetros metodológicos del relevamiento."""
-    st.markdown('<div class="grupo">2. Parámetros metodológicos</div>',
+    st.markdown('<div class="grupo">2. Parametros metodológicos</div>',
                 unsafe_allow_html=True)
 
     st.session_state.selected_dims = st.multiselect(
@@ -626,7 +632,7 @@ def _grupo_parametros():
 
 def _grupo_ejecucion():
     """Grupo 3: Ejecución del proceso de relevamiento."""
-    st.markdown('<div class="grupo">3. Ejecución</div>',
+    st.markdown('<div class="grupo">3. Ejecucion</div>',
                 unsafe_allow_html=True)
 
     n    = len(st.session_state.companies)
@@ -642,20 +648,20 @@ def _grupo_ejecucion():
     st.write("")
 
     # Auditoría QA
-    if st.button("▶  Iniciar auditoría QA",
+    if st.button("Iniciar auditoría QA",
                  type             = "primary",
                  use_container_width = True,
                  disabled         = not ok):
         _run_audit()
 
     # Scraping
-    if st.button("◆  Iniciar scraping de catálogo",
+    if st.button("Iniciar scraping de catálogo",
                  use_container_width = True,
                  disabled = not ok):
         _run_scraping()
 
     # Demo
-    if st.button("○  Ejecutar demo (sin internet)",
+    if st.button("Ejecutar demo (sin internet)",
                  use_container_width = True):
         _run_demo()
 
@@ -677,7 +683,7 @@ def _grupo_ejecucion():
         cfg   = {"rate_limit": st.session_state.rate_limit,
                  "max_products": st.session_state.max_products}
         st.download_button(
-            "⬇  Descargar config.py",
+            "Descargar configuracion (config.py)",
             data      = preview_config_py(sites, cfg),
             file_name = "runtime_config.py",
             mime      = "text/plain",
@@ -801,7 +807,9 @@ def _panel_qa():
 
     cols_num = [c for c in df_m.columns if c not in ("Sitio",)]
     styled = (
-        df_m.style.map(estilo_score, subset=cols_num).format({c: "{:.2f}" for c in cols_num}, na_rep="—")
+        df_m.style
+        .map(_estilo_score, subset=cols_num)
+        .format({c: "{:.2f}" for c in cols_num}, na_rep="—")
     )
     st.dataframe(styled, use_container_width=True, hide_index=True)
 
@@ -1029,12 +1037,12 @@ def _panel_exportar():
         return
 
     st.write("**Informe académico HTML**")
-    if st.button("Generar informe HTML (anonimizado)", use_container_width=True):
+    if st.button("Generar informe HTML", use_container_width=True):
         try:
             from modules.reporter import HTMLReporter
             path = HTMLReporter(db).generate()
             st.download_button(
-                "Descargar informe",
+                "Descargar informe HTML",
                 data      = path.read_text(encoding="utf-8"),
                 file_name = path.name,
                 mime      = "text/html",
@@ -1102,8 +1110,8 @@ st.markdown(
 )
 st.markdown(
     '<div class="pag-subtitulo">'
-    'Herramienta de relevamiento académico · Metodología mixta: '
-    'auditoría QA + web scraping ético · Informes anonimizados'
+    'Relevamiento académico · Provincia de Misiones (NEA) · '
+    'Posadas · Garupá · Itaembé Guazú · Mayoristas de consumo masivo'
     '</div>',
     unsafe_allow_html=True,
 )

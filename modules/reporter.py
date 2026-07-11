@@ -229,8 +229,8 @@ class HTMLReporter:
         products = self.db.get_products()
         history  = self.db.get_price_history()
         ts_str   = datetime.now().strftime("%d/%m/%Y %H:%M")
+        n_casos  = len(set(r["test_case_id"] for r in results)) if results else 0
 
-        # Agrupar scores por sitio
         by_site_scores: dict[str, dict] = {}
         for row in scores:
             by_site_scores.setdefault(row["site_id"], {})[row["dimension_id"]] = row
@@ -240,253 +240,457 @@ class HTMLReporter:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Informe de Auditoría — Mayoristas de Consumo Masivo</title>
+<title>Informe de Auditoria - Mayoristas de Consumo Masivo</title>
 {self._css()}
 </head>
 <body>
-<header>
-  <h1>Auditoría del proceso de compra</h1>
-  <h2>Plataformas mayoristas de consumo masivo</h2>
-  <p class="meta">Generado: {ts_str} &nbsp;|&nbsp; Sitios auditados: {len(sites)} &nbsp;|&nbsp;
-     Casos evaluados: {len(set(r['test_case_id'] for r in results))} &nbsp;|&nbsp;
-     Productos relevados: {len(products)}</p>
-  <p class="disclaimer">⚠ Los nombres de las organizaciones auditadas han sido anonimizados
-     conforme a los principios éticos de la investigación académica.
-     Los identificadores <em>Sitio Auditado N</em> son asignados en forma arbitraria
-     y no permiten inferir la identidad de las empresas.</p>
-</header>
-<main>
-{self._section_resumen(sites, by_site_scores)}
-{self._section_dimensiones(sites, results)}
-{self._section_radares(sites, by_site_scores)}
-{self._section_productos(sites, products)}
-{self._section_precios(sites, history)}
-</main>
-<footer>
-  <p>Documento generado automáticamente por el sistema de auditoría académica.
-     Uso exclusivo en investigación. No reproducir con fines comerciales.</p>
-</footer>
+<div class="portada">
+  <div class="portada-titulo">Informe de Relevamiento y Auditoria</div>
+  <div class="portada-subtitulo">Proceso de Compra en Plataformas Mayoristas de Consumo Masivo</div>
+  <div class="portada-region">Provincia de Misiones - NEA - Argentina</div>
+  <div class="portada-meta">
+    Fecha de generacion: {ts_str}<br>
+    Plataformas relevadas: {len(sites)}<br>
+    Indicadores evaluados: {n_casos} por plataforma<br>
+    Productos relevados: {len(products)}
+  </div>
+  <div class="nota-anon">Los nombres de las organizaciones auditadas han sido reemplazados
+  por identificadores genericos (Sitio Auditado N) conforme a los principios eticos
+  de la investigacion academica. Los identificadores son asignados en forma arbitraria
+  y no permiten inferir la identidad de las organizaciones.</div>
+</div>
+<div class="contenido">
+{self._section_distribucion(results)}
+{self._section_dims_agregado(scores)}
+{self._section_matriz(sites, by_site_scores)}
+{self._section_detalle_casos(sites, results)}
+{self._section_catalogo_agregado(sites, products)}
+{self._section_precios_agregado(sites, history)}
+</div>
+<div class="pie">
+  Documento generado por el sistema de auditoria academica AuditMayorista.
+  Uso exclusivo en investigacion. No reproducir con fines comerciales.
+</div>
 </body>
 </html>"""
 
-    def _section_resumen(self, sites, by_site_scores) -> str:
-        dim_ids  = sorted(QA_DIMENSIONS.keys())
-        site_map = build_anon_map(sites)
-        rows_html = ""
-        for site_id, dim_data in by_site_scores.items():
-            name   = site_map.get(site_id, site_id)
-            scores_vals = []
-            cells  = ""
-            for d in dim_ids:
-                if d in dim_data:
-                    avg = dim_data[d]["avg_compliance"]
-                    scores_vals.append(avg)
-                    cls = "score-high" if avg >= 2.5 else ("score-mid" if avg >= 1.5 else "score-low")
-                    cells += f'<td class="{cls}">{avg:.2f}</td>'
-                else:
-                    cells += '<td class="score-na">—</td>'
-            idx = round(sum(scores_vals)/len(scores_vals), 2) if scores_vals else 0
-            idx_cls = "score-high" if idx >= 2.5 else ("score-mid" if idx >= 1.5 else "score-low")
-            rows_html += f"<tr><td><strong>{name}</strong></td>{cells}<td class='{idx_cls}'><strong>{idx:.2f}</strong></td></tr>"
+    # ── Secciones del informe ──────────────────────────────────────────────────
 
-        header_cells = "".join(f"<th>{d}<br><small>{QA_DIMENSIONS[d]['name'][:15]}…</small></th>" for d in dim_ids)
-        return f"""
-<section>
-  <h2>Matriz de cumplimiento QA</h2>
-  <p>Escala de cumplimiento: <span class="score-high">≥ 2.5 Pleno</span> |
-     <span class="score-mid">1.5–2.4 Parcial</span> |
-     <span class="score-low">&lt; 1.5 Crítico</span></p>
-  <div class="table-wrap">
-  <table>
-    <thead><tr><th>Sitio</th>{header_cells}<th>Índice</th></tr></thead>
-    <tbody>{rows_html}</tbody>
-  </table>
-  </div>
-</section>"""
-
-    def _section_dimensiones(self, sites, results) -> str:
-        site_map = build_anon_map(sites)
-        # Agrupar por sitio > dimensión > caso
-        by_site: dict = {}
-        for r in results:
-            by_site.setdefault(r["site_id"], {}) \
-                   .setdefault(r["dimension_id"], []) \
-                   .append(r)
-        html = "<section><h2>Resultados por dimensión</h2>"
-        for site_id, dims in by_site.items():
-            name = site_map.get(site_id, site_id)
-            html += f"<h3>{name}</h3><div class='table-wrap'><table>"
-            html += "<thead><tr><th>ID</th><th>Caso de prueba</th><th>Resultado</th><th>Evidencia / Notas</th></tr></thead><tbody>"
-            for dim_id in sorted(dims.keys()):
-                cases = dims[dim_id]
-                dim_name = QA_DIMENSIONS.get(dim_id, {}).get("name", dim_id)
-                html += f'<tr class="dim-header"><td colspan="4"><strong>{dim_id} — {dim_name}</strong></td></tr>'
-                for c in cases:
-                    comp = c["compliance"]
-                    cls  = "score-high" if comp == 3 else ("score-mid" if comp == 2 else "score-low")
-                    lbl  = COMPLIANCE_SCALE.get(comp, "")
-                    evi  = (c.get("evidence") or c.get("notes") or "")[:80]
-                    html += f"<tr><td>{c['test_case_id']}</td><td>{c['test_case_name']}</td>"
-                    html += f"<td class='{cls}'>{lbl}</td><td class='evidence'>{evi}</td></tr>"
-            html += "</tbody></table></div>"
-        html += "</section>"
-        return html
-
-    def _section_radares(self, sites, by_site_scores) -> str:
-        if not by_site_scores:
+    def _section_distribucion(self, results: list) -> str:
+        """Distribucion global de los valores de cumplimiento."""
+        if not results:
             return ""
-        html = "<section><h2>Perfil de cumplimiento por sitio</h2><div class='radares'>"
-        site_map = build_anon_map(sites)
-        dim_ids  = sorted(QA_DIMENSIONS.keys())
-        for site_id, dim_data in by_site_scores.items():
-            name   = site_map.get(site_id, site_id)
-            values = [dim_data.get(d, {}).get("avg_compliance", 0) for d in dim_ids]
-            html  += self._radar_svg(name, dim_ids, values)
-        html += "</div></section>"
-        return html
+        total  = len(results)
+        dist   = {0: 0, 1: 0, 2: 0, 3: 0}
+        for r in results:
+            dist[r["compliance"]] = dist.get(r["compliance"], 0) + 1
 
-    def _radar_svg(self, title: str, labels: list, values: list) -> str:
-        """Genera un gráfico de radar SVG para un sitio."""
-        n      = len(labels)
-        cx, cy = 130, 130
-        r_max  = 90
-        angles = [math.pi / 2 + 2 * math.pi * i / n for i in range(n)]
-        # Puntos de la malla (escala 0-3)
-        def point(angle, val, scale=3):
-            frac = val / scale
-            x    = cx + r_max * frac * math.cos(angle)
-            y    = cy - r_max * frac * math.sin(angle)
-            return x, y
-        # Polígono de datos
-        pts = [point(angles[i], values[i]) for i in range(n)]
-        poly_pts = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-        # Ejes
-        axes_svg = ""
-        for i, (a, lbl) in enumerate(zip(angles, labels)):
-            x2  = cx + r_max * math.cos(a)
-            y2  = cy - r_max * math.sin(a)
-            axes_svg += f'<line x1="{cx}" y1="{cy}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="#ccc" stroke-width="0.8"/>'
-            # Etiqueta
-            lx  = cx + (r_max + 16) * math.cos(a)
-            ly  = cy - (r_max + 16) * math.sin(a)
-            dim_name = QA_DIMENSIONS.get(lbl, {}).get("name", lbl)[:12]
-            axes_svg += f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="middle" dominant-baseline="central" font-size="8" fill="#555">{lbl}<tspan dy="9" x="{lx:.1f}" font-size="7" fill="#888">{dim_name}</tspan></text>'
-        # Anillos de referencia
-        rings_svg = ""
-        for lvl in [1, 2, 3]:
-            ring_pts = " ".join(
-                f"{cx + r_max*(lvl/3)*math.cos(a):.1f},{cy - r_max*(lvl/3)*math.sin(a):.1f}"
-                for a in angles
-            )
-            rings_svg += f'<polygon points="{ring_pts}" fill="none" stroke="#ddd" stroke-width="0.6"/>'
-            rings_svg += f'<text x="{cx+4:.0f}" y="{cy - r_max*(lvl/3):.0f}" font-size="7" fill="#aaa">{lvl}</text>'
+        filas = ""
+        etiquetas = {3: "Cumple plenamente", 2: "Cumple parcialmente",
+                     1: "No cumple", 0: "No aplica / No verificable"}
+        for v in [3, 2, 1, 0]:
+            n   = dist[v]
+            pct = round(n / total * 100, 1) if total else 0
+            filas += f"<tr><td>{v}</td><td>{etiquetas[v]}</td><td class='num'>{n}</td><td class='num'>{pct}%</td></tr>"
 
-        score = round(sum(values) / len(values), 2) if values else 0
-        color = "#22c55e" if score >= 2.5 else ("#f59e0b" if score >= 1.5 else "#ef4444")
-
-        return f"""<div class="radar-card">
-  <svg viewBox="0 0 260 260" width="260" height="260">
-    {rings_svg}
-    {axes_svg}
-    <polygon points="{poly_pts}" fill="{color}" fill-opacity="0.25" stroke="{color}" stroke-width="1.5"/>
-    {"".join(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3" fill="{color}"/>' for x,y in pts)}
-    <text x="130" y="246" text-anchor="middle" font-size="11" font-weight="bold" fill="#333">{title[:28]}</text>
-    <text x="130" y="258" text-anchor="middle" font-size="9" fill="{color}">Índice: {score:.2f} / 3.00</text>
-  </svg>
+        return f"""
+<div class="seccion">
+  <div class="sec-num">1.</div>
+  <div class="sec-titulo">Distribucion global del cumplimiento</div>
+  <div class="sec-desc">Total de observaciones evaluadas en el conjunto de plataformas: {total}.</div>
+  <table>
+    <thead><tr><th>Valor</th><th>Categoria</th><th>Cantidad</th><th>Porcentaje</th></tr></thead>
+    <tbody>{filas}</tbody>
+  </table>
+  <div class="nota">Escala de medicion: 3 = Cumple plenamente, 2 = Cumple parcialmente,
+  1 = No cumple, 0 = No aplica o no verificable. Los casos con valor 0 se excluyen
+  del calculo de promedios dimensionales.</div>
 </div>"""
 
-    def _section_productos(self, sites, products) -> str:
+    def _section_dims_agregado(self, scores: list) -> str:
+        """Resultados agregados por dimension: promedio, min, max, tasa de aprobacion."""
+        if not scores:
+            return ""
+        from collections import defaultdict
+        por_dim: dict[str, list] = defaultdict(list)
+        for row in scores:
+            por_dim[row["dimension_id"]].append(row["avg_compliance"])
+
+        filas = ""
+        for did in sorted(QA_DIMENSIONS.keys()):
+            if did not in por_dim:
+                continue
+            vals     = por_dim[did]
+            n        = len(vals)
+            prom     = round(sum(vals) / n, 2)
+            minimo   = round(min(vals), 2)
+            maximo   = round(max(vals), 2)
+            aprobados= sum(1 for v in vals if v >= 2.0)
+            tasa     = round(aprobados / n * 100, 1)
+            nombre   = QA_DIMENSIONS[did]["name"]
+            peso     = QA_DIMENSIONS[did]["weight"]
+            filas += (
+                f"<tr><td>{did}</td><td>{nombre}</td><td class='num'>{peso}</td>"
+                f"<td class='num'>{prom:.2f}</td><td class='num'>{minimo:.2f}</td>"
+                f"<td class='num'>{maximo:.2f}</td><td class='num'>{tasa}%</td></tr>"
+            )
+
+        return f"""
+<div class="seccion">
+  <div class="sec-num">2.</div>
+  <div class="sec-titulo">Resultados por dimension de analisis</div>
+  <div class="sec-desc">Estadisticas calculadas sobre el conjunto de plataformas relevadas.
+  El promedio corresponde a la media aritmetica de los scores dimensionales de todos los sitios.</div>
+  <table>
+    <thead><tr>
+      <th>ID</th><th>Dimension</th><th>Peso</th>
+      <th>Promedio</th><th>Minimo</th><th>Maximo</th><th>% Aprobacion</th>
+    </tr></thead>
+    <tbody>{filas}</tbody>
+  </table>
+  <div class="nota">El porcentaje de aprobacion considera cumplimiento plenamente o
+  parcialmente (valores 2 y 3). El peso es el coeficiente de ponderacion utilizado
+  en el calculo del Indice de Calidad Compuesto.</div>
+</div>"""
+
+    def _section_matriz(self, sites: list, by_site_scores: dict) -> str:
+        """Matriz comparativa unificada: todos los sitios x todas las dimensiones."""
+        if not by_site_scores:
+            return ""
+        dim_ids  = sorted(QA_DIMENSIONS.keys())
+        site_map = build_anon_map(sites)
+        pesos    = {d: QA_DIMENSIONS[d]["weight"] for d in dim_ids}
+
+        # Filas de sitios
+        filas      = ""
+        col_sumas  = {d: [] for d in dim_ids}
+        for sid, dim_data in sorted(by_site_scores.items()):
+            nombre = site_map.get(sid, sid)
+            vals   = []
+            celdas = ""
+            for d in dim_ids:
+                if d in dim_data:
+                    v = dim_data[d]["avg_compliance"]
+                    vals.append(v)
+                    col_sumas[d].append(v)
+                    cls = "alto" if v >= 2.5 else ("medio" if v >= 1.5 else "bajo")
+                    celdas += f'<td class="num {cls}">{v:.2f}</td>'
+                else:
+                    celdas += '<td class="num nd">nd</td>'
+            icc = round(
+                sum(dim_data[d]["avg_compliance"] * pesos[d]
+                    for d in dim_ids if d in dim_data)
+                / sum(pesos[d] for d in dim_ids if d in dim_data), 2
+            ) if vals else 0
+            cls_icc = "alto" if icc >= 2.5 else ("medio" if icc >= 1.5 else "bajo")
+            filas += (
+                f"<tr><td>{nombre}</td>{celdas}"
+                f"<td class='num {cls_icc} icc'>{icc:.2f}</td></tr>"
+            )
+
+        # Fila de promedios
+        prom_celdas = ""
+        for d in dim_ids:
+            v = round(sum(col_sumas[d]) / len(col_sumas[d]), 2) if col_sumas[d] else 0
+            prom_celdas += f'<td class="num prom">{v:.2f}</td>'
+        # ICC promedio
+        icc_prom = round(
+            sum(
+                (sum(col_sumas[d]) / len(col_sumas[d])) * pesos[d]
+                for d in dim_ids if col_sumas[d]
+            ) / sum(pesos[d] for d in dim_ids if col_sumas[d]), 2
+        ) if any(col_sumas.values()) else 0
+        filas += (
+            f"<tr class='fila-prom'><td>Promedio general</td>{prom_celdas}"
+            f"<td class='num prom icc'>{icc_prom:.2f}</td></tr>"
+        )
+
+        encabezados = "".join(
+            f"<th>{d}<br><small>{QA_DIMENSIONS[d]['name'][:12]}</small></th>"
+            for d in dim_ids
+        )
+
+        return f"""
+<div class="seccion">
+  <div class="sec-num">3.</div>
+  <div class="sec-titulo">Matriz de cumplimiento</div>
+  <div class="sec-desc">Cada celda representa el promedio de cumplimiento de una dimension
+  para una plataforma. El Indice de Calidad Compuesto (ICC) es la media ponderada
+  de los ocho scores dimensionales.</div>
+  <div class="tabla-scroll">
+  <table>
+    <thead><tr><th>Plataforma</th>{encabezados}<th>ICC</th></tr></thead>
+    <tbody>{filas}</tbody>
+  </table>
+  </div>
+  <div class="leyenda-colores">
+    <span class="alto">Alto (&gt;= 2.50)</span>
+    <span class="medio">Medio (1.50 - 2.49)</span>
+    <span class="bajo">Bajo (&lt; 1.50)</span>
+  </div>
+</div>"""
+
+    def _section_detalle_casos(self, sites: list, results: list) -> str:
+        """
+        Detalle de casos de prueba con todas las plataformas en columnas.
+        Vista agregada: los casos son las filas, las plataformas son las columnas.
+        """
+        if not results:
+            return ""
+        site_map  = build_anon_map(sites)
+        site_ids  = sorted({r["site_id"] for r in results})
+        site_cols = [site_map.get(sid, sid) for sid in site_ids]
+
+        # Organizar resultados: {dim_id: {test_case_id: {site_id: compliance}}}
+        datos: dict = {}
+        nombres_caso: dict = {}
+        for r in results:
+            did  = r["dimension_id"]
+            tcid = r["test_case_id"]
+            datos.setdefault(did, {}).setdefault(tcid, {})[r["site_id"]] = r["compliance"]
+            nombres_caso[tcid] = r["test_case_name"]
+
+        encabezados = "".join(f"<th>{col}</th>" for col in site_cols)
+        html_dims   = ""
+
+        for did in sorted(datos.keys()):
+            dim_nombre = QA_DIMENSIONS.get(did, {}).get("name", did)
+            filas_dim  = ""
+            for tcid in sorted(datos[did].keys()):
+                nombre_tc = nombres_caso.get(tcid, tcid)
+                celdas    = ""
+                for sid in site_ids:
+                    v   = datos[did][tcid].get(sid)
+                    if v is None:
+                        celdas += "<td class='num nd'>nd</td>"
+                    else:
+                        lbl = COMPLIANCE_SCALE.get(v, str(v))
+                        cls = "alto" if v == 3 else ("medio" if v == 2 else ("bajo" if v == 1 else "nd"))
+                        celdas += f'<td class="num {cls}" title="{lbl}">{v}</td>'
+                filas_dim += f"<tr><td class='caso-id'>{tcid}</td><td>{nombre_tc}</td>{celdas}</tr>"
+            html_dims += f"""
+<div class="bloque-dim">
+  <div class="dim-titulo">{did} — {dim_nombre}</div>
+  <div class="tabla-scroll">
+  <table>
+    <thead><tr><th>ID</th><th>Indicador evaluado</th>{encabezados}</tr></thead>
+    <tbody>{filas_dim}</tbody>
+  </table>
+  </div>
+</div>"""
+
+        return f"""
+<div class="seccion">
+  <div class="sec-num">4.</div>
+  <div class="sec-titulo">Detalle de indicadores por dimension</div>
+  <div class="sec-desc">Cada fila representa un indicador evaluado. Las columnas muestran
+  el valor de cumplimiento obtenido por cada plataforma auditada. Escala: 3 Pleno,
+  2 Parcial, 1 No cumple, 0 No aplica.</div>
+  {html_dims}
+</div>"""
+
+    def _section_catalogo_agregado(self, sites: list, products: list) -> str:
+        """Catalogo de productos relevados: estadisticas agregadas del conjunto."""
         if not products:
             return ""
-        site_map = build_anon_map(sites)
-        by_site: dict[str, list] = {}
-        for p in products:
-            by_site.setdefault(p["site_id"], []).append(p)
+        site_map    = build_anon_map(sites)
+        total       = len(products)
+        con_dto     = sum(1 for p in products if p["has_discount"])
+        sin_stock   = sum(1 for p in products if p["stock_status"] == "sin stock")
+        categorias  = len(set(p["category"] for p in products if p["category"]))
+        precios     = [p["price_unit"] for p in products if p["price_unit"] and p["price_unit"] > 0]
+        prom_p      = round(sum(precios) / len(precios), 2) if precios else 0
+        min_p       = round(min(precios), 2) if precios else 0
+        max_p       = round(max(precios), 2) if precios else 0
 
-        html = "<section><h2>Productos relevados por scraping</h2>"
-        for site_id, prods in by_site.items():
-            name       = site_map.get(site_id, site_id)
-            with_disc  = sum(1 for p in prods if p["has_discount"])
-            no_stock   = sum(1 for p in prods if p["stock_status"] == "sin stock")
-            prices     = [p["price_unit"] for p in prods if p["price_unit"] and p["price_unit"] > 0]
-            avg_p      = round(sum(prices)/len(prices), 2) if prices else 0
-            html += f"<h3>{name} — {len(prods)} productos</h3>"
-            html += f"<p>Con descuento: <strong>{with_disc}</strong> | Sin stock: <strong>{no_stock}</strong> | Precio prom.: <strong>$ {avg_p:,.2f}</strong></p>"
-            html += "<div class='table-wrap'><table><thead><tr><th>Nombre</th><th>Categoría</th><th>Precio unit.</th><th>Medida</th><th>Stock</th><th>Dto.</th></tr></thead><tbody>"
-            for p in prods[:50]:
-                disc_cell = f"{p['discount_pct']:.0f}%" if p["has_discount"] else "—"
-                html += (
-                    f"<tr><td>{p['name'] or '—'}</td><td>{p['category'] or '—'}</td>"
-                    f"<td>$ {p['price_unit']:,.2f}</td><td>{p['unit_measure'] or '—'}</td>"
-                    f"<td>{p['stock_status']}</td><td>{disc_cell}</td></tr>"
-                )
-            if len(prods) > 50:
-                html += f"<tr><td colspan='6' style='text-align:center;color:#888'>…y {len(prods)-50} más en la base de datos</td></tr>"
-            html += "</tbody></table></div>"
-        html += "</section>"
-        return html
+        resumen = f"""
+<table>
+  <thead><tr><th>Indicador</th><th>Valor</th></tr></thead>
+  <tbody>
+    <tr><td>Total de productos relevados</td><td class='num'>{total}</td></tr>
+    <tr><td>Categorias identificadas</td><td class='num'>{categorias}</td></tr>
+    <tr><td>Productos con descuento</td><td class='num'>{con_dto} ({round(con_dto/total*100,1) if total else 0}%)</td></tr>
+    <tr><td>Productos sin stock</td><td class='num'>{sin_stock} ({round(sin_stock/total*100,1) if total else 0}%)</td></tr>
+    <tr><td>Precio unitario promedio</td><td class='num'>$ {prom_p:,.2f}</td></tr>
+    <tr><td>Precio unitario minimo</td><td class='num'>$ {min_p:,.2f}</td></tr>
+    <tr><td>Precio unitario maximo</td><td class='num'>$ {max_p:,.2f}</td></tr>
+  </tbody>
+</table>"""
 
-    def _section_precios(self, sites, history) -> str:
+        # Tabla completa de productos (todos juntos)
+        filas_prod = ""
+        for p in products[:200]:
+            sitio    = site_map.get(p["site_id"], p["site_id"])
+            dto_cell = f"{p['discount_pct']:.0f}%" if p["has_discount"] else "No"
+            filas_prod += (
+                f"<tr><td>{sitio}</td><td>{p['name'] or 'nd'}</td>"
+                f"<td>{p['category'] or 'nd'}</td>"
+                f"<td class='num'>$ {p['price_unit']:,.2f}</td>"
+                f"<td>{p['unit_measure'] or 'nd'}</td>"
+                f"<td>{p['stock_status']}</td>"
+                f"<td class='num'>{dto_cell}</td></tr>"
+            )
+        if len(products) > 200:
+            filas_prod += f"<tr><td colspan='7' class='nota-fila'>Se muestran 200 de {len(products)} registros.</td></tr>"
+
+        tabla_prod = f"""
+<div class="tabla-scroll">
+<table>
+  <thead><tr>
+    <th>Plataforma</th><th>Producto</th><th>Categoria</th>
+    <th>Precio unit.</th><th>Medida</th><th>Stock</th><th>Descuento</th>
+  </tr></thead>
+  <tbody>{filas_prod}</tbody>
+</table>
+</div>"""
+
+        return f"""
+<div class="seccion">
+  <div class="sec-num">5.</div>
+  <div class="sec-titulo">Catalogo de productos relevados</div>
+  <div class="sec-desc">Productos extraidos del catalogo publico de las plataformas
+  auditadas. Los datos corresponden al primer corte temporal del relevamiento.</div>
+  {resumen}
+  <div class="subtitulo-tabla">Listado consolidado de productos</div>
+  {tabla_prod}
+</div>"""
+
+    def _section_precios_agregado(self, sites: list, history: list) -> str:
+        """Variacion de precios entre cortes temporales: vista agregada."""
         if not history:
             return ""
-        by_prod: dict = {}
+        site_map = build_anon_map(sites)
+
+        # Calcular variaciones
+        por_prod: dict = {}
         for row in history:
             key = (row["site_id"], row["product_url"])
-            by_prod.setdefault(key, []).append(row)
+            por_prod.setdefault(key, {})[row["snapshot_number"]] = {
+                "price": row["price_unit"],
+                "name" : row["product_name"],
+            }
 
-        # Filtrar solo los que tienen variación
-        varied = {k: v for k, v in by_prod.items() if len(v) > 1}
-        if not varied:
-            return ""
+        variaciones = []
+        for (sid, url), snaps in por_prod.items():
+            p1  = snaps.get(1, {}).get("price")
+            p2  = snaps.get(2, {}).get("price")
+            p3  = snaps.get(3, {}).get("price")
+            nom = snaps.get(1, {}).get("name") or url.split("/")[-1]
+            var12 = round((p2 - p1) / p1 * 100, 2) if p1 and p2 and p1 > 0 else None
+            var13 = round((p3 - p1) / p1 * 100, 2) if p1 and p3 and p1 > 0 else None
+            variaciones.append({
+                "site": site_map.get(sid, sid),
+                "nombre": nom,
+                "p1": p1, "p2": p2, "p3": p3,
+                "var12": var12, "var13": var13,
+            })
 
-        site_map = build_anon_map(sites)
-        html = "<section><h2>Variación de precios entre snapshots</h2>"
-        html += "<div class='table-wrap'><table><thead><tr><th>Sitio</th><th>Producto</th><th>Snap 1</th><th>Snap 2</th><th>Snap 3</th><th>Var. %</th></tr></thead><tbody>"
-        for (site_id, url), entries in list(varied.items())[:30]:
-            entries_s  = sorted(entries, key=lambda x: x["snapshot_number"])
-            prices_map = {e["snapshot_number"]: e["price_unit"] for e in entries_s}
-            name       = entries_s[0]["product_name"] or url.split("/")[-1]
-            p1, p2, p3 = prices_map.get(1), prices_map.get(2), prices_map.get(3)
-            var        = round((p2-p1)/p1*100, 1) if p1 and p2 else ""
-            var_cls    = "score-low" if isinstance(var, float) and var > 5 else ("score-mid" if var else "")
-            site_name  = site_map.get(site_id, site_id)
-            html += (
-                f"<tr><td>{site_name}</td><td>{name[:40]}</td>"
-                f"<td>${p1:,.2f}</td><td>{'$'+f'{p2:,.2f}' if p2 else '—'}</td>"
-                f"<td>{'$'+f'{p3:,.2f}' if p3 else '—'}</td>"
-                f"<td class='{var_cls}'>{f'{var:+.1f}%' if var != '' else '—'}</td></tr>"
+        # Estadisticas agregadas de variacion
+        vars12 = [v["var12"] for v in variaciones if v["var12"] is not None]
+        prom_var = round(sum(vars12) / len(vars12), 2) if vars12 else 0
+        sobre5   = sum(1 for v in vars12 if v > 5)
+        bajo0    = sum(1 for v in vars12 if v < 0)
+
+        resumen_var = f"""
+<table>
+  <thead><tr><th>Indicador</th><th>Valor</th></tr></thead>
+  <tbody>
+    <tr><td>Pares de precios comparados (Snap. 1 vs. 2)</td><td class='num'>{len(vars12)}</td></tr>
+    <tr><td>Variacion promedio</td><td class='num'>{prom_var:+.2f}%</td></tr>
+    <tr><td>Productos con variacion mayor al 5%</td><td class='num'>{sobre5} ({round(sobre5/len(vars12)*100,1) if vars12 else 0}%)</td></tr>
+    <tr><td>Productos con reduccion de precio</td><td class='num'>{bajo0}</td></tr>
+  </tbody>
+</table>"""
+
+        filas_var = ""
+        for v in variaciones[:150]:
+            var12_txt = f"{v['var12']:+.1f}%" if v["var12"] is not None else "nd"
+            var13_txt = f"{v['var13']:+.1f}%" if v["var13"] is not None else "nd"
+            cls12 = "bajo" if isinstance(v["var12"], float) and v["var12"] > 5 else ""
+            p1_str = f"$ {v['p1']:,.2f}" if v["p1"] else "nd"
+            p2_str = f"$ {v['p2']:,.2f}" if v["p2"] else "nd"
+            p3_str = f"$ {v['p3']:,.2f}" if v["p3"] else "nd"
+            filas_var += (
+                f"<tr><td>{v['site']}</td><td>{v['nombre'][:40]}</td>"
+                f"<td class='num'>{p1_str}</td>"
+                f"<td class='num'>{p2_str}</td>"
+                f"<td class='num'>{p3_str}</td>"
+                f"<td class='num {cls12}'>{var12_txt}</td>"
+                f"<td class='num'>{var13_txt}</td></tr>"
             )
-        html += "</tbody></table></div></section>"
-        return html
+
+        tabla_var = f"""
+<div class="tabla-scroll">
+<table>
+  <thead><tr>
+    <th>Plataforma</th><th>Producto</th>
+    <th>Precio Snap.1</th><th>Precio Snap.2</th><th>Precio Snap.3</th>
+    <th>Var. % (1-2)</th><th>Var. % (1-3)</th>
+  </tr></thead>
+  <tbody>{filas_var}</tbody>
+</table>
+</div>"""
+
+        return f"""
+<div class="seccion">
+  <div class="sec-num">6.</div>
+  <div class="sec-titulo">Variacion de precios entre cortes temporales</div>
+  <div class="sec-desc">Comparacion de precios entre los tres cortes temporales
+  del relevamiento (dia 0, dia 7 y dia 14). Formula: Var% = (P2 - P1) / P1 x 100.</div>
+  {resumen_var}
+  <div class="subtitulo-tabla">Detalle por producto</div>
+  {tabla_var}
+</div>"""
 
     def _css(self) -> str:
         return """<style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Segoe UI', Arial, sans-serif; background: #f8f9fa; color: #212529; font-size: 14px; }
-header { background: #1e3a5f; color: white; padding: 28px 40px; }
-header h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
-header h2 { font-size: 16px; font-weight: 400; opacity: .85; margin-bottom: 8px; }
-.meta { font-size: 12px; opacity: .7; }
-main { max-width: 1100px; margin: 32px auto; padding: 0 20px; }
-section { background: white; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); padding: 28px; margin-bottom: 24px; }
-h2 { font-size: 18px; color: #1e3a5f; border-bottom: 2px solid #e9ecef; padding-bottom: 10px; margin-bottom: 18px; }
-h3 { font-size: 15px; color: #495057; margin: 18px 0 10px; }
-.table-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { background: #1e3a5f; color: white; padding: 10px 12px; text-align: center; font-weight: 600; }
-td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
-tr:hover td { background: #f8f9fa; }
-.dim-header td { background: #eef2f7; font-weight: 600; color: #1e3a5f; padding: 7px 12px; }
-.score-high { background: #dcfce7; color: #166534; font-weight: 600; }
-.score-mid  { background: #fef9c3; color: #854d0e; font-weight: 600; }
-.score-low  { background: #fee2e2; color: #991b1b; font-weight: 600; }
-.score-na   { color: #9ca3af; }
-.evidence   { color: #6b7280; font-size: 12px; font-style: italic; }
-.radares    { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
-.radar-card { border: 1px solid #e9ecef; border-radius: 8px; padding: 12px; background: white; }
-footer { text-align: center; padding: 20px; color: #9ca3af; font-size: 12px; margin-top: 20px; }
-.disclaimer { font-size: 11px; background: rgba(255,255,255,.15); border-radius: 6px;
-  padding: 6px 12px; margin-top: 10px; border-left: 3px solid rgba(255,255,255,.5); }
+body { font-family: Arial, Helvetica, sans-serif; font-size: 13px;
+       color: #1a1a1a; background: #fff; }
+.portada { border-bottom: 2px solid #1a1a1a; padding: 32px 40px 24px;
+           max-width: 960px; margin: 0 auto 30px; }
+.portada-titulo    { font-size: 20px; font-weight: bold; margin-bottom: 6px; }
+.portada-subtitulo { font-size: 15px; margin-bottom: 4px; }
+.portada-region    { font-size: 13px; color: #444; margin-bottom: 16px; }
+.portada-meta      { font-size: 12px; color: #444; line-height: 1.8; margin-bottom: 14px; }
+.nota-anon { font-size: 11px; color: #555; font-style: italic;
+             border-left: 3px solid #888; padding-left: 10px; }
+.contenido { max-width: 960px; margin: 0 auto; padding: 0 40px 40px; }
+.seccion   { margin-bottom: 36px; padding-bottom: 24px;
+             border-bottom: 1px solid #ccc; }
+.sec-num   { font-size: 11px; font-weight: bold; letter-spacing: .08em;
+             text-transform: uppercase; color: #555; margin-bottom: 3px; }
+.sec-titulo { font-size: 16px; font-weight: bold; margin-bottom: 6px;
+              border-bottom: 1px solid #1a1a1a; padding-bottom: 4px; }
+.sec-desc   { font-size: 12px; color: #555; margin: 8px 0 12px;
+              line-height: 1.6; }
+.subtitulo-tabla { font-size: 13px; font-weight: bold; margin: 16px 0 6px; }
+.bloque-dim     { margin-bottom: 20px; }
+.dim-titulo     { font-size: 13px; font-weight: bold; background: #f2f2f2;
+                  padding: 6px 10px; border-left: 3px solid #1a1a1a;
+                  margin-bottom: 6px; }
+.tabla-scroll   { overflow-x: auto; }
+table  { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 6px; }
+th     { background: #1a1a1a; color: #fff; padding: 8px 10px;
+         text-align: left; font-weight: bold; font-size: 11px; }
+td     { padding: 6px 10px; border-bottom: 1px solid #e0e0e0; }
+tr:nth-child(even) td { background: #fafafa; }
+.num   { text-align: right; font-family: monospace; }
+.caso-id { font-family: monospace; font-size: 11px; white-space: nowrap; }
+.alto  { font-weight: bold; }
+.medio { }
+.bajo  { color: #666; font-style: italic; }
+.nd    { color: #aaa; text-align: center; }
+.prom  { font-weight: bold; background: #f0f0f0; }
+.icc   { border-left: 1px solid #ccc; }
+.fila-prom td { background: #f0f0f0; font-weight: bold; }
+.nota  { font-size: 11px; color: #555; font-style: italic; margin-top: 10px; line-height: 1.6; }
+.nota-fila { text-align: center; color: #888; font-style: italic; }
+.leyenda-colores { font-size: 11px; margin-top: 8px; color: #555; }
+.leyenda-colores span { margin-right: 16px; }
+.pie   { text-align: center; font-size: 11px; color: #888;
+         border-top: 1px solid #ccc; padding: 16px 40px;
+         max-width: 960px; margin: 0 auto; }
 </style>"""
 
 

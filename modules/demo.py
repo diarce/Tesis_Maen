@@ -21,10 +21,31 @@ logger = logging.getLogger(__name__)
 
 # ── Datos maestros para simulación ────────────────────────────────────────────
 
+# Sitios simulados alineados al contexto de investigación:
+# Provincia de Misiones — Posadas · Garupá · Itaembé Guazú
+# Mercado: mayoristas de bienes de consumo masivo
 _SIMULATED_SITES = [
-    {"id": "SIM001", "name": "Makro Argentina",   "base_url": "https://www.makro.com.ar",  "platform": "VTEX",   "region": "Nacional"},
-    {"id": "SIM002", "name": "Vital Mayorista",   "base_url": "https://www.vital.com.ar",  "platform": "Magento","region": "Nacional"},
-    {"id": "SIM003", "name": "Distrib. Regional", "base_url": "https://www.ejemplo.com.ar","platform": "Custom", "region": "NOA/NEA"},
+    {
+        "id"      : "MIS001",
+        "name"    : "Makro Posadas",
+        "base_url": "https://www.makro.com.ar",
+        "platform": "VTEX",
+        "region"  : "Misiones · Posadas / Garupá / Itaembé Guazú",
+    },
+    {
+        "id"      : "MIS002",
+        "name"    : "DIA% Mayorista",
+        "base_url": "https://diaonline.supermercadosdia.com.ar",
+        "platform": "Custom",
+        "region"  : "Misiones · Posadas / Garupá / Itaembé Guazú",
+    },
+    {
+        "id"      : "MIS003",
+        "name"    : "Vital Mayorista NEA",
+        "base_url": "https://www.vital.com.ar",
+        "platform": "Magento / Custom",
+        "region"  : "Misiones · Posadas / Garupá / Itaembé Guazú",
+    },
 ]
 
 _CATEGORIES = [

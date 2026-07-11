@@ -337,6 +337,20 @@ class DatabaseManager:
             rows = conn.execute(sql).fetchall()
         return [dict(r) for r in rows]
 
+    def clear_site_results(self, site_id: str) -> None:
+        """
+        Elimina todos los resultados previos de un sitio antes de una nueva
+        ejecución, garantizando que cada corrida produce datos únicos y frescos.
+
+        Tablas afectadas: audit_results, price_history, products, snapshots.
+        La tabla 'sites' NO se toca: el sitio permanece registrado.
+        """
+        tablas = ["audit_results", "price_history", "products", "snapshots"]
+        with self._connect() as conn:
+            for tabla in tablas:
+                conn.execute(f"DELETE FROM {tabla} WHERE site_id = ?", (site_id,))
+        logger.info(f"[DB] Datos previos purgados para sitio: {site_id}")
+
     # ── Exportación CSV ────────────────────────────────────────────────────────
 
     def export_csv(self, table: str, output_path: Path) -> Path:

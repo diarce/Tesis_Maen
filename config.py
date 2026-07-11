@@ -21,20 +21,35 @@ for d in [OUTPUT_DIR, LOGS_DIR, CSV_DIR, REPORTS_DIR, SNAPSHOTS_DIR]:
     d.mkdir(parents=True, exist_ok=True)
 
 
-# ── Muestra de sitios a auditar ────────────────────────────────────────────────
-# Completar con los sitios reales seleccionados en la Fase 1 del relevamiento.
-# Cada entrada representa una unidad de análisis del estudio.
+# ══════════════════════════════════════════════════════════════════════════════
+# CONTEXTO DE INVESTIGACIÓN
+# ══════════════════════════════════════════════════════════════════════════════
+# Provincia  : Misiones
+# Localidades: Posadas · Garupá · Itaembé Guazú
+# Mercado    : Mayoristas de bienes de consumo masivo
+# ══════════════════════════════════════════════════════════════════════════════
+
+RESEARCH_CONTEXT = {
+    "provincia"   : "Misiones",
+    "localidades" : ["Posadas", "Garupá", "Itaembé Guazú"],
+    "mercado"     : "Mayoristas de bienes de consumo masivo",
+    "region"      : "NEA — Noreste Argentino",
+}
+
+# ── Muestra inicial de sitios a auditar ────────────────────────────────────────
+# Representa los sitios con presencia digital en el mercado mayorista de Misiones.
+# Las entradas con base_url vacía corresponden a sitios locales pendientes de
+# identificación en la Fase 1 del relevamiento de campo.
 SITES = [
     {
-        "id"          : "SITE001",
-        "name"        : "Makro Argentina",
-        "base_url"    : "https://www.makro.com.ar",
-        "dynamic"     : True,                         # Requiere renderizado JS
-        "platform"    : "VTEX",
-        "region"      : "Nacional",
-        "notes"       : "Plataforma VTEX; verificar paginación dinámica.",
-        # Selectores específicos de la plataforma (ajustar por sitio)
-        "selectors"   : {
+        "id"      : "MIS001",
+        "name"    : "Makro Posadas",
+        "base_url": "https://www.makro.com.ar",
+        "dynamic" : True,
+        "platform": "VTEX",
+        "region"  : "Misiones · Posadas / Garupá / Itaembé Guazú",
+        "notes"   : "Mayorista nacional con cobertura en Misiones. VTEX. Requiere CUIT.",
+        "selectors": {
             "category_links"  : "nav a[href*='/category'], nav a[href*='/c']",
             "product_card"    : ".vtex-product-summary, [class*='productSummary']",
             "product_name"    : "[class*='productBrand'], [class*='nameContainer']",
@@ -48,14 +63,35 @@ SITES = [
         },
     },
     {
-        "id"          : "SITE002",
-        "name"        : "Vital Mayorista",
-        "base_url"    : "https://www.vital.com.ar",
-        "dynamic"     : False,
-        "platform"    : "Magento / Custom",
-        "region"      : "Nacional",
-        "notes"       : "Verificar si requiere login previo para ver precios.",
-        "selectors"   : {
+        "id"      : "MIS002",
+        "name"    : "DIA% Mayorista",
+        "base_url": "https://diaonline.supermercadosdia.com.ar",
+        "dynamic" : True,
+        "platform": "Custom",
+        "region"  : "Misiones · Posadas / Garupá / Itaembé Guazú",
+        "notes"   : "Modalidad mayorista online con despacho al NEA.",
+        "selectors": {
+            "category_links"  : "a[href*='/categoria'], a[href*='/c/']",
+            "product_card"    : ".product-summary, [class*='product-card']",
+            "product_name"    : "[class*='product-name'], h2.name",
+            "product_price"   : "[class*='product-price'], .price",
+            "product_image"   : ".product-image img",
+            "stock_indicator" : "[class*='stock-status']",
+            "search_input"    : "input[type='search'], input[placeholder*='busca']",
+            "add_to_cart"     : "button[class*='add-to-cart']",
+            "breadcrumb"      : "nav[aria-label*='bread']",
+            "cart_count"      : "[class*='cart-count']",
+        },
+    },
+    {
+        "id"      : "MIS003",
+        "name"    : "Vital Mayorista NEA",
+        "base_url": "https://www.vital.com.ar",
+        "dynamic" : False,
+        "platform": "Magento / Custom",
+        "region"  : "Misiones · Posadas / Garupá / Itaembé Guazú",
+        "notes"   : "Distribuidor regional NEA. Verificar si requiere login para ver precios.",
+        "selectors": {
             "category_links"  : "#nav a, .nav-primary a",
             "product_card"    : ".product-item, li.item.product",
             "product_name"    : ".product-item-name, .product-name",
@@ -68,9 +104,18 @@ SITES = [
             "cart_count"      : ".counter-number, .minicart-qty",
         },
     },
-    # -----------------------------------------------------------------
-    # Para agregar más sitios, copiar el bloque anterior y ajustar campos
-    # -----------------------------------------------------------------
+    # ─────────────────────────────────────────────────────────────────────────
+    # Entradas pendientes: completar base_url con el sitio identificado en campo
+    # ─────────────────────────────────────────────────────────────────────────
+    # {
+    #     "id"      : "MIS004",
+    #     "name"    : "Distribuidora Local Posadas",
+    #     "base_url": "",          ← completar con la URL real
+    #     "dynamic" : False,
+    #     "platform": "Custom",
+    #     "region"  : "Misiones · Posadas / Garupá / Itaembé Guazú",
+    #     "selectors": { ... },
+    # },
 ]
 
 
