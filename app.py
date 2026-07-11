@@ -24,8 +24,8 @@ sys.path.insert(0, str(ROOT))
 
 # ── Configuración de página ────────────────────────────────────────────────────
 st.set_page_config(
-    page_title = "AuditMayorista — Herramienta Académica",
-    page_icon  = "📋",
+    page_title = "Auditoria Mayorista — Herramienta Académica",
+    page_icon  = "",
     layout     = "wide",
     initial_sidebar_state = "collapsed",
 )
@@ -46,7 +46,7 @@ html, body, [class*="css"] {
 
 /* Contenedor principal */
 .block-container {
-    padding-top: 1.4rem !important;
+    padding-top: 2.4rem !important;
     padding-bottom: 2rem !important;
     max-width: 1280px;
 }
