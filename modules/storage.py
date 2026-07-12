@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS audit_results (
     compliance_label TEXT NOT NULL,
     evidence         TEXT,
     notes            TEXT,
+    verification_method TEXT DEFAULT 'estatico',
     audited_at       TEXT DEFAULT (datetime('now'))
 );
 """
@@ -120,6 +121,9 @@ class AuditResult:
     compliance_label: str
     evidence        : str = ""
     notes           : str = ""
+    # 'estatico' (default) | 'js_rendered' (reclasificado tras Playwright) |
+    # 'estatico_confirmado_js' (Playwright confirmó el "No cumple")
+    verification_method: str = "estatico"
 
 
 @dataclass
@@ -153,6 +157,22 @@ class DatabaseManager:
     def _init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript(_SCHEMA)
+            self._migrar_columnas_faltantes(conn)
+
+    def _migrar_columnas_faltantes(self, conn: sqlite3.Connection) -> None:
+        """
+        Migración segura para bases de datos creadas con un esquema anterior
+        (p. ej. audit.db previo a la incorporación de la reverificación con
+        Playwright). CREATE TABLE IF NOT EXISTS no agrega columnas a tablas ya
+        existentes, así que se agregan aquí de forma idempotente.
+        """
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(audit_results)")}
+        if "verification_method" not in cols:
+            conn.execute(
+                "ALTER TABLE audit_results ADD COLUMN verification_method "
+                "TEXT DEFAULT 'estatico'"
+            )
+            logger.info("[DB] Migración aplicada: audit_results.verification_method")
 
     # ── Sitios ─────────────────────────────────────────────────────────────────
 
@@ -281,26 +301,27 @@ class DatabaseManager:
         sql = """
             INSERT INTO audit_results
                 (site_id, dimension_id, test_case_id, test_case_name,
-                 compliance, compliance_label, evidence, notes)
-            VALUES (?,?,?,?,?,?,?,?)
+                 compliance, compliance_label, evidence, notes, verification_method)
+            VALUES (?,?,?,?,?,?,?,?,?)
         """
         with self._connect() as conn:
             conn.execute(sql, (
                 result.site_id, result.dimension_id, result.test_case_id,
                 result.test_case_name, result.compliance, result.compliance_label,
-                result.evidence, result.notes,
+                result.evidence, result.notes, result.verification_method,
             ))
 
     def insert_audit_results_bulk(self, results: list[AuditResult]) -> None:
         sql = """
             INSERT INTO audit_results
                 (site_id, dimension_id, test_case_id, test_case_name,
-                 compliance, compliance_label, evidence, notes)
-            VALUES (?,?,?,?,?,?,?,?)
+                 compliance, compliance_label, evidence, notes, verification_method)
+            VALUES (?,?,?,?,?,?,?,?,?)
         """
         rows = [
             (r.site_id, r.dimension_id, r.test_case_id, r.test_case_name,
-             r.compliance, r.compliance_label, r.evidence, r.notes)
+             r.compliance, r.compliance_label, r.evidence, r.notes,
+             r.verification_method)
             for r in results
         ]
         with self._connect() as conn:

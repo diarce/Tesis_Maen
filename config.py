@@ -149,6 +149,40 @@ SCRAPING_CONFIG = {
 }
 
 
+# ── Reverificación con navegador real (Playwright) ─────────────────────────────
+# Segunda pasada, EXCLUSIVA para indicadores que dieron "No cumple" (1) en
+# check_types que dependen del HTML/DOM (element_exists, text_pattern,
+# element_attribute, accessibility). No reemplaza el fetch estático: lo
+# complementa, para distinguir un "No cumple" real de un falso negativo
+# causado por contenido renderizado vía JavaScript del lado del cliente
+# (frecuente en plataformas SPA como VTEX, marcadas "dynamic": true).
+#
+# Deshabilitado por defecto: requiere `pip install playwright && playwright
+# install chromium` en el entorno donde corre la app (ver requirements.txt).
+# Se activa explícitamente (config.py o desde la app) una vez verificado que
+# el entorno lo soporta.
+JS_RENDER_CONFIG = {
+    "enabled"                 : False,
+    "headless"                : True,
+    "viewport"                : (1366, 900),
+    # Mismo user-agent académico transparente que el fetch estático
+    "user_agent"              : SCRAPING_CONFIG["user_agent"],
+    # Tiempo máximo de espera a que el DOM alcance 'load'
+    "page_load_timeout_seconds": 30,
+    # Espera adicional tras 'load', para contenido inyectado por JS
+    # asincrónico (fetch/XHR posteriores al evento load)
+    "post_load_wait_seconds"  : 2.5,
+    # Reutiliza el MISMO rate limiter y robots_checker que PageFetcher:
+    # la cadencia de acceso y el respeto de robots.txt son un único criterio
+    # ético para todo el sistema, sin importar qué motor de fetch se use.
+    "reuse_static_rate_limiter": True,
+    # check_types elegibles para reverificación (los que dependen de HTML/DOM)
+    "check_types_reverificables": [
+        "element_exists", "text_pattern", "element_attribute", "accessibility"
+    ],
+}
+
+
 # ── Dimensiones de auditoría QA ────────────────────────────────────────────────
 # Cada dimensión tiene un peso relativo en el índice de calidad compuesto.
 QA_DIMENSIONS = {

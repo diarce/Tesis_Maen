@@ -24,11 +24,13 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 from config import (
-    SITES, QA_DIMENSIONS, QA_TEST_CASES, COMPLIANCE_SCALE, SCRAPING_CONFIG
+    SITES, QA_DIMENSIONS, QA_TEST_CASES, COMPLIANCE_SCALE, SCRAPING_CONFIG,
+    JS_RENDER_CONFIG,
 )
 from modules.ethics import RobotsChecker, RateLimiter, EthicsLogger, ethical_request
 from modules.storage import DatabaseManager, AuditResult
 from modules.scraper import PageFetcher
+from modules.js_fetcher import JSFetcher, JSFetcherNoDisponible
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,9 @@ class CheckOutcome:
     partial        : bool = False
     evidence       : str  = ""
     notes          : str  = ""
+    # 'estatico' (default) | 'js_rendered' (reclasificado tras Playwright) |
+    # 'estatico_confirmado_js' (Playwright confirmó el "No cumple" estático)
+    verification_method: str = "estatico"
 
     @property
     def compliance(self) -> int:
@@ -259,6 +264,106 @@ class AuditEngine:
         self.cfg     = cfg
         self.fetcher = PageFetcher(cfg)
         self.checker = PageChecker()
+        # Reverificación con Playwright (Opción B) — lazy, solo si está
+        # habilitada en config.JS_RENDER_CONFIG y solo se instancia al
+        # primer uso real (evita requerir el paquete/navegador si no se usa).
+        self.js_fetcher       = None
+        self._js_no_disponible = False
+
+    def close(self) -> None:
+        """Libera recursos (navegador de Playwright, si fue inicializado)."""
+        if self.js_fetcher is not None:
+            self.js_fetcher.close()
+
+    def _get_js_fetcher(self):
+        """
+        Construye (una única vez) el fetcher con Playwright, reutilizando el
+        MISMO RobotsChecker/RateLimiter/EthicsLogger que usa el fetch
+        estático — una sola política ética para todo el sistema.
+        Retorna None si la reverificación está deshabilitada o si el
+        navegador no está disponible en este entorno.
+        """
+        if not JS_RENDER_CONFIG.get("enabled", False) or self._js_no_disponible:
+            return None
+        if self.js_fetcher is not None:
+            return self.js_fetcher
+
+        self.js_fetcher = JSFetcher(
+            cfg            = JS_RENDER_CONFIG,
+            robots_checker = self.fetcher.robots_checker,
+            rate_limiter   = self.fetcher.rate_limiter,
+            ethics_logger  = self.fetcher.ethics_log,
+        )
+        return self.js_fetcher
+
+    def _reverificar_con_js(
+        self, tc: dict, url: str, outcome_estatico: "CheckOutcome"
+    ) -> "CheckOutcome":
+        """
+        Segunda pasada con navegador real para un indicador clasificado
+        "No cumple" (1) por el fetch estático. Ver modules/js_fetcher.py
+        para la justificación metodológica completa.
+        """
+        js_fetcher = self._get_js_fetcher()
+        if js_fetcher is None:
+            return outcome_estatico
+
+        try:
+            soup_js = js_fetcher.get(url)
+        except JSFetcherNoDisponible as exc:
+            logger.warning(
+                f"[PLAYWRIGHT] Navegador no disponible; se desactiva la "
+                f"reverificación para el resto de la corrida. Motivo: {exc}"
+            )
+            self._js_no_disponible = True
+            return outcome_estatico
+
+        if soup_js is None:
+            # Bloqueado por robots.txt o error de red/navegación: se
+            # mantiene el resultado estático sin cambios.
+            return outcome_estatico
+
+        outcome_js = self.checker.check(
+            test_case     = tc, soup = soup_js, url = url,
+            response_code = 200, response_time = 0.0,
+        )
+
+        if outcome_js.compliance > outcome_estatico.compliance:
+            # Falso negativo confirmado: el elemento existe pero se
+            # renderiza vía JavaScript; el fetch estático no podía verlo.
+            nota = (
+                outcome_js.notes
+                + " [Reclasificado: no detectado en HTML estático, "
+                  "confirmado tras renderizado con Playwright]"
+            ).strip()
+            return CheckOutcome(
+                test_case_id   = outcome_js.test_case_id,
+                test_case_name = outcome_js.test_case_name,
+                dimension_id   = outcome_js.dimension_id,
+                passed         = outcome_js.passed,
+                partial        = outcome_js.partial,
+                evidence       = outcome_js.evidence,
+                notes          = nota,
+                verification_method = "js_rendered",
+            )
+
+        # El navegador tampoco lo encuentra: "No cumple" confirmado con
+        # mayor grado de confianza metodológica.
+        nota = (
+            outcome_estatico.notes
+            + " [Confirmado tras renderizado con Playwright: tampoco se "
+              "detecta con JavaScript ejecutado]"
+        ).strip()
+        return CheckOutcome(
+            test_case_id   = outcome_estatico.test_case_id,
+            test_case_name = outcome_estatico.test_case_name,
+            dimension_id   = outcome_estatico.dimension_id,
+            passed         = outcome_estatico.passed,
+            partial        = outcome_estatico.partial,
+            evidence       = outcome_estatico.evidence,
+            notes          = nota,
+            verification_method = "estatico_confirmado_js",
+        )
 
     def run(
         self,
@@ -327,10 +432,31 @@ class AuditEngine:
                         compliance_label= outcome.compliance_label,
                         evidence        = outcome.evidence,
                         notes           = outcome.notes,
+                        verification_method = outcome.verification_method,
                     ))
             if audit_records:
                 self.db.insert_audit_results_bulk(audit_records)
                 logger.info(f"[AUDIT] {len(audit_records)} resultados persistidos.")
+
+        # Transparencia metodológica: resumen de la reverificación con Playwright
+        if JS_RENDER_CONFIG.get("enabled", False):
+            reclasificados = sum(
+                1 for site_summaries in all_results.values()
+                for dim in site_summaries for o in dim.outcomes
+                if o.verification_method == "js_rendered"
+            )
+            confirmados = sum(
+                1 for site_summaries in all_results.values()
+                for dim in site_summaries for o in dim.outcomes
+                if o.verification_method == "estatico_confirmado_js"
+            )
+            if reclasificados or confirmados:
+                logger.info(
+                    f"[PLAYWRIGHT] Reverificación completada — "
+                    f"{reclasificados} indicador(es) reclasificados (falso "
+                    f"negativo confirmado), {confirmados} indicador(es) "
+                    f"'No cumple' confirmados tras renderizado JS."
+                )
 
         return all_results
 
@@ -413,10 +539,18 @@ class AuditEngine:
             response_time = time.monotonic() - t0
             response_code = 200 if soup else 0
 
-        return self.checker.check(
+        outcome = self.checker.check(
             test_case     = tc,
             soup          = soup,
             url           = url,
             response_code = response_code,
             response_time = response_time,
         )
+
+        # Opción B: reverificación con navegador real, EXCLUSIVA para
+        # indicadores "No cumple" en check_types que dependen del HTML/DOM.
+        reverificables = set(JS_RENDER_CONFIG.get("check_types_reverificables", []))
+        if check_type in reverificables and outcome.compliance == 1:
+            outcome = self._reverificar_con_js(tc, url, outcome)
+
+        return outcome

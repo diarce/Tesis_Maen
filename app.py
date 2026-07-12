@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 # ── Configuración de página ────────────────────────────────────────────────────
 st.set_page_config(
     page_title = "Auditoria Mayorista — Herramienta Académica",
-    page_icon  = " ",
+    page_icon  = "",
     layout     = "wide",
     initial_sidebar_state = "collapsed",
 )
@@ -182,6 +182,7 @@ def init_state():
         "selected_dims" : list(DIMS_LABEL.keys()),
         "rate_limit"    : 3.0,
         "max_products"  : 50,
+        "selenium_enabled": False,
         "provincia_sel" : "Misiones",   # Contexto del estudio: NEA — Misiones
         "panel"         : "qa",
         "localidades_default": ["Posadas", "Garupá", "Itaembé Guazú"],
@@ -250,12 +251,13 @@ def build_runtime_sites() -> list:
 
 
 def inject_config(sites: list, cfg: dict):
-    """Actualiza config.SITES y SCRAPING_CONFIG en memoria."""
+    """Actualiza config.SITES, SCRAPING_CONFIG y JS_RENDER_CONFIG en memoria."""
     import config
     config.SITES.clear()
     config.SITES.extend(sites)
     config.SCRAPING_CONFIG["rate_limit_seconds"]    = cfg["rate_limit"]
     config.SCRAPING_CONFIG["max_products_per_site"] = cfg["max_products"]
+    config.JS_RENDER_CONFIG["enabled"] = cfg.get("selenium_enabled", False)
 
 
 def write_runtime_json(sites: list) -> Path:
@@ -308,8 +310,9 @@ def _save_config():
         return
     out = write_runtime_json(sites)
     inject_config(sites, {
-        "rate_limit"  : st.session_state.rate_limit,
-        "max_products": st.session_state.max_products,
+        "rate_limit"       : st.session_state.rate_limit,
+        "max_products"     : st.session_state.max_products,
+        "selenium_enabled" : st.session_state.selenium_enabled,
     })
     add_log(f"Configuración guardada: {len(sites)} sitio(s) → {out.name}", "OK")
 
@@ -361,8 +364,9 @@ def _run_audit():
     st.session_state.audit_log = []
     install_log_handler()
     inject_config(sites, {
-        "rate_limit"  : st.session_state.rate_limit,
-        "max_products": st.session_state.max_products,
+        "rate_limit"       : st.session_state.rate_limit,
+        "max_products"     : st.session_state.max_products,
+        "selenium_enabled" : st.session_state.selenium_enabled,
     })
     add_log(f"Iniciando auditoría QA — {len(sites)} sitio(s).", "INFO")
     try:
@@ -375,11 +379,15 @@ def _run_audit():
             db.upsert_site(s)
             db.clear_site_results(s["id"])
             add_log(f"Datos previos eliminados: {s['id']}", "INFO")
-        AuditEngine(db).run(
-            dimension_filter = st.session_state.get("selected_dims") or None,
-            dry_run          = False,
-            sites_override   = sites,
-        )
+        engine = AuditEngine(db)
+        try:
+            engine.run(
+                dimension_filter = st.session_state.get("selected_dims") or None,
+                dry_run          = False,
+                sites_override   = sites,
+            )
+        finally:
+            engine.close()
         st.session_state.audit_done = True
         st.session_state.panel      = "qa"
         add_log("Auditoría QA finalizada.", "OK")
@@ -397,8 +405,9 @@ def _run_scraping():
     st.session_state.audit_log = []
     install_log_handler()
     inject_config(sites, {
-        "rate_limit"  : st.session_state.rate_limit,
-        "max_products": st.session_state.max_products,
+        "rate_limit"       : st.session_state.rate_limit,
+        "max_products"     : st.session_state.max_products,
+        "selenium_enabled" : st.session_state.selenium_enabled,
     })
     add_log(f"Iniciando scraping — {len(sites)} sitio(s).", "INFO")
     try:
@@ -664,6 +673,28 @@ def _grupo_parametros():
         step      = 10,
     )
 
+    st.session_state.selenium_enabled = st.toggle(
+        "Reverificar con navegador real (Playwright) los indicadores 'No cumple'",
+        value = st.session_state.selenium_enabled,
+        help  = (
+            "Segunda pasada, SOLO para indicadores que dependen del HTML/DOM "
+            "(menús, buscador, formularios, etc.) que dieron 'No cumple' en el "
+            "relevamiento estático. Distingue un falso negativo por contenido "
+            "renderizado con JavaScript (frecuente en plataformas SPA/VTEX) de "
+            "un 'No cumple' real. Requiere `playwright install chromium` en el "
+            "servidor donde corre esta app; si no está disponible, la app lo "
+            "detecta y continúa con el resultado estático sin interrumpir la "
+            "auditoría."
+        ),
+    )
+    if st.session_state.selenium_enabled:
+        st.caption(
+            "⚠ La auditoría será más lenta (el navegador debe cargar y "
+            "renderizar cada página reverificada). Los indicadores "
+            "reclasificados quedan marcados en la base de datos "
+            "(verification_method = 'js_rendered')."
+        )
+
     st.markdown(
         '<div class="nota-met">'
         'El sistema respeta el archivo <code>robots.txt</code> de cada sitio. '
@@ -770,8 +801,9 @@ def _panel_qa():
                 unsafe_allow_html=True)
 
     try:
-        from modules.storage import DatabaseManager
-        from config          import DB_PATH, QA_DIMENSIONS
+        from modules.storage  import DatabaseManager
+        from modules.reporter import calcular_icc_ponderado
+        from config            import DB_PATH, QA_DIMENSIONS
         db      = DatabaseManager(DB_PATH)
         sites   = db.get_sites()
         scores  = db.get_dimension_scores()
@@ -835,7 +867,8 @@ def _panel_qa():
                 vals.append(v)
             else:
                 fila[d] = None
-        fila["Índice"] = round(sum(vals) / len(vals), 2) if vals else 0.0
+        pesos = {d: QA_DIMENSIONS[d]["weight"] for d in dim_ids}
+        fila["Índice"] = calcular_icc_ponderado(dims, pesos) if vals else 0.0
         matriz.append(fila)
 
     df_m = pd.DataFrame(matriz)
@@ -861,21 +894,23 @@ def _panel_qa():
     st.markdown(
         '<div class="nota-met">'
         'Escala de cumplimiento: 3 = Pleno · 2 = Parcial · 1 = No cumple · 0 = N/A. '
-        'El Índice es el promedio aritmético de los scores de todas las dimensiones '
-        'evaluadas para el sitio. Los casos con valor 0 se excluyen del cálculo.'
+        'El Índice es el ICC — media ponderada de los ocho scores dimensionales '
+        '(ICC = &sum;(S<sub>k</sub> &times; w<sub>k</sub>) / &sum;w<sub>k</sub>), '
+        'igual fórmula usada en el informe HTML exportado. '
+        'Los casos con valor 0 se excluyen del cálculo.'
         '</div>',
         unsafe_allow_html=True,
     )
 
     # ── Detalle por dimensión ─────────────────────────────────────────────────
-    if sites:
+    if sites_activos:
         st.write("")
         st.markdown('<div class="res-seccion">Detalle por dimensión</div>',
                     unsafe_allow_html=True)
 
         site_sel = st.selectbox(
             "Seleccionar sitio:",
-            options      = [s["id"] for s in sites],
+            options      = [s["id"] for s in sites_activos],
             format_func  = lambda sid: site_map.get(sid, sid),
         )
 

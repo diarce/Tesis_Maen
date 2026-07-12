@@ -39,6 +39,35 @@ def build_anon_map(sites: list) -> dict:
     return {sid: f"Sitio Auditado {i}" for i, sid in enumerate(sorted_ids, start=1)}
 
 
+# ── ICC: única fuente de verdad ────────────────────────────────────────────────
+def calcular_icc_ponderado(dim_data: dict, pesos: dict) -> float:
+    """
+    Única función de cálculo del Indice de Calidad Compuesto (ICC) para todo
+    el sistema (informe HTML, vistas previas SVG y panel en vivo de la app).
+
+    Formula: ICC = Σ(S_k × w_k) / Σw_k, sobre las dimensiones k presentes.
+
+    dim_data: {dimension_id: {"avg_compliance": float, ...}} o
+              {dimension_id: float} — admite ambas formas.
+    pesos   : {dimension_id: peso}
+
+    IMPORTANTE: toda sección que muestre un "ICC" o "Índice" debe llamar a esta
+    función. Antes de esta unificación existían 3 implementaciones divergentes
+    (una ponderada correcta y dos que usaban promedio aritmético simple),
+    que producían valores distintos para el mismo sitio en distintas vistas
+    del mismo informe — ver auditoría de coherencia previa.
+    """
+    def _valor(v):
+        return v["avg_compliance"] if isinstance(v, dict) else v
+
+    presentes = [d for d in pesos if d in dim_data]
+    if not presentes:
+        return 0.0
+    wsum = sum(_valor(dim_data[d]) * pesos[d] for d in presentes)
+    pw   = sum(pesos[d] for d in presentes)
+    return round(wsum / pw, 2) if pw else 0.0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 class ConsoleReporter:
     """Imprime en terminal una tabla de resultados por sitio y dimensión."""
@@ -410,11 +439,7 @@ class HTMLReporter:
                     celdas += f'<td class="num {cls}">{v:.2f}</td>'
                 else:
                     celdas += '<td class="num nd">nd</td>'
-            icc = round(
-                sum(dim_data[d]["avg_compliance"] * pesos[d]
-                    for d in dim_ids if d in dim_data)
-                / sum(pesos[d] for d in dim_ids if d in dim_data), 2
-            ) if vals else 0
+            icc = calcular_icc_ponderado(dim_data, pesos) if vals else 0
             cls_icc = "alto" if icc >= 2.5 else ("medio" if icc >= 1.5 else "bajo")
             filas += (
                 f"<tr><td>{nombre}</td>{celdas}"
@@ -426,13 +451,10 @@ class HTMLReporter:
         for d in dim_ids:
             v = round(sum(col_sumas[d]) / len(col_sumas[d]), 2) if col_sumas[d] else 0
             prom_celdas += f'<td class="num prom">{v:.2f}</td>'
-        # ICC promedio
-        icc_prom = round(
-            sum(
-                (sum(col_sumas[d]) / len(col_sumas[d])) * pesos[d]
-                for d in dim_ids if col_sumas[d]
-            ) / sum(pesos[d] for d in dim_ids if col_sumas[d]), 2
-        ) if any(col_sumas.values()) else 0
+        # ICC promedio (misma función compartida, sobre los promedios por dimensión)
+        prom_por_dim = {d: (sum(col_sumas[d]) / len(col_sumas[d]))
+                        for d in dim_ids if col_sumas[d]}
+        icc_prom = calcular_icc_ponderado(prom_por_dim, pesos) if prom_por_dim else 0
         filas += (
             f"<tr class='fila-prom'><td>Promedio general</td>{prom_celdas}"
             f"<td class='num prom icc'>{icc_prom:.2f}</td></tr>"
@@ -531,10 +553,7 @@ class HTMLReporter:
 
         items = []
         for sid, dim_data in sorted(by_site_scores.items()):
-            vals  = [dim_data[d]["avg_compliance"] for d in sorted(QA_DIMENSIONS) if d in dim_data]
-            wsum  = sum(dim_data[d]["avg_compliance"] * pesos[d] for d in pesos if d in dim_data)
-            pw    = sum(pesos[d] for d in pesos if d in dim_data)
-            icc   = round(wsum / pw, 2) if pw else 0
+            icc = calcular_icc_ponderado(dim_data, pesos)
             items.append((site_map.get(sid, sid), icc))
 
         # SVG
@@ -604,6 +623,7 @@ class HTMLReporter:
 
         site_map = build_anon_map(sites)
         dim_ids  = sorted(QA_DIMENSIONS.keys())
+        pesos_radar = {d: QA_DIMENSIONS[d]["weight"] for d in dim_ids}
         N        = len(dim_ids)
         cx, cy   = 220, 215
         r_max    = 140
@@ -669,7 +689,7 @@ class HTMLReporter:
                 poligonos += f'<circle cx="{xp:.1f}" cy="{yp:.1f}" r="3" fill="{stk_col}"/>'
 
             nombre = site_map.get(sid, sid)
-            icc    = round(sum(values)/len(values), 2) if values else 0
+            icc    = calcular_icc_ponderado(dim_data, pesos_radar)
             ly_leg = 55 + idx * 28
             da_leg = f'stroke-dasharray="{dash}"' if dash != "none" else ""
             leyenda_items += (
@@ -694,7 +714,7 @@ class HTMLReporter:
         )
         poligonos += (f'<polygon points="{pts_prom}" fill="none" stroke="#333" '
                       f'stroke-width="2.5" stroke-dasharray="8,3" opacity="0.6"/>')
-        prom_icc = round(sum(prom_vals)/len(prom_vals), 2)
+        prom_icc = calcular_icc_ponderado(dict(zip(dim_ids, prom_vals)), pesos_radar)
         leyenda_items += (
             f'<line x1="460" y1="145" x2="500" y2="145" stroke="#333" '
             f'stroke-width="2.5" stroke-dasharray="8,3" opacity="0.6"/>'
@@ -823,10 +843,7 @@ class HTMLReporter:
 
         items = []
         for sid, dim_data in sorted(by_site_scores.items()):
-            wsum = sum(dim_data[d]["avg_compliance"] * pesos[d]
-                       for d in pesos if d in dim_data)
-            pw   = sum(pesos[d] for d in pesos if d in dim_data)
-            icc  = round(wsum / pw, 2) if pw else 0
+            icc = calcular_icc_ponderado(dim_data, pesos)
             items.append((site_map.get(sid, sid), icc))
 
         bw, bh, gap = 360, 30, 12
@@ -875,6 +892,7 @@ class HTMLReporter:
             return "<p>Sin datos.</p>"
         site_map = build_anon_map(sites)
         dim_ids  = sorted(QA_DIMENSIONS.keys())
+        pesos    = {d: QA_DIMENSIONS[d]["weight"] for d in dim_ids}
         N        = len(dim_ids)
         cx, cy   = 210, 205
         r_max    = 135
@@ -926,7 +944,7 @@ class HTMLReporter:
             for a,v in zip(angles,vals):
                 xp,yp = cx+r_max*(v/3)*math.cos(a), cy-r_max*(v/3)*math.sin(a)
                 poligs += f'<circle cx="{xp:.1f}" cy="{yp:.1f}" r="3" fill="{stk}"/>'
-            icc    = round(sum(vals)/len(vals),2)
+            icc    = calcular_icc_ponderado(dim_data, pesos)
             nombre = site_map.get(sid,sid)
             ly_l   = 50 + idx*28
             da_l   = f'stroke-dasharray="{dash}"' if dash!="none" else ""

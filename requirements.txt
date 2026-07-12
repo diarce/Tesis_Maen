@@ -6,9 +6,10 @@ requests>=2.31.0
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
 
-# Scraping de sitios con JavaScript (opcional, para dynamic=True)
+# Reverificación con navegador real (Opción B — ver modules/js_fetcher.py)
+# Deshabilitado por defecto (config.JS_RENDER_CONFIG["enabled"] = False).
+# Para habilitarlo: pip install playwright && playwright install chromium
 playwright>=1.40.0
-# Nota: tras instalar, ejecutar: playwright install chromium
 
 # Análisis de datos
 pandas>=2.0.0

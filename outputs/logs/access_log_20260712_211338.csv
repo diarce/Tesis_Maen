@@ -1,0 +1,2 @@
+timestamp,url,method,status_code,robots_allowed,response_time_ms,notes
+2026-07-12T21:13:38.409507,http://127.0.0.1:8123/,GET,0,False,0.0,Bloqueado por robots.txt

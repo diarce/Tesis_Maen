@@ -1,0 +1,11 @@
+timestamp,url,method,status_code,robots_allowed,response_time_ms,notes
+2026-07-12T21:13:30.650313,http://127.0.0.1:8123/,GET,0,False,0.0,Bloqueado por robots.txt
+2026-07-12T21:13:30.650447,http://127.0.0.1:8123/,GET-JS,0,False,0.0,Bloqueado por robots.txt (reverificación Playwright)
+2026-07-12T21:13:30.650556,http://127.0.0.1:8123/,GET,0,False,0.0,Bloqueado por robots.txt
+2026-07-12T21:13:30.650620,http://127.0.0.1:8123/,GET-JS,0,False,0.0,Bloqueado por robots.txt (reverificación Playwright)
+2026-07-12T21:13:30.650687,http://127.0.0.1:8123/,GET,0,False,0.0,Bloqueado por robots.txt
+2026-07-12T21:13:30.650745,http://127.0.0.1:8123/,GET-JS,0,False,0.0,Bloqueado por robots.txt (reverificación Playwright)
+2026-07-12T21:13:30.650824,http://127.0.0.1:8123/,GET,0,False,0.0,Bloqueado por robots.txt
+2026-07-12T21:13:30.650876,http://127.0.0.1:8123/,GET-JS,0,False,0.0,Bloqueado por robots.txt (reverificación Playwright)
+2026-07-12T21:13:30.650936,http://127.0.0.1:8123/,GET,0,False,0.0,Bloqueado por robots.txt
+2026-07-12T21:13:30.650986,http://127.0.0.1:8123/,GET-JS,0,False,0.0,Bloqueado por robots.txt (reverificación Playwright)

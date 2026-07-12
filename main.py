@@ -149,11 +149,14 @@ def cmd_list_sites() -> None:
 def cmd_audit(db: DatabaseManager, args: argparse.Namespace) -> None:
     from modules.auditor import AuditEngine
     engine = AuditEngine(db)
-    results = engine.run(
-        site_filter     = args.site,
-        dimension_filter= args.dimension,
-        dry_run         = args.dry_run,
-    )
+    try:
+        results = engine.run(
+            site_filter     = args.site,
+            dimension_filter= args.dimension,
+            dry_run         = args.dry_run,
+        )
+    finally:
+        engine.close()
     if results:
         print(f"\n  [✓] Auditoría completada. {sum(len(v) for v in results.values())} dimensiones evaluadas.")
         print("  Ejecute 'report' para generar el informe completo.\n")
