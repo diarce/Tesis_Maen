@@ -183,6 +183,7 @@ def init_state():
         "rate_limit"    : 3.0,
         "max_products"  : 50,
         "selenium_enabled": False,
+        "js_no_disponible": False,
         "provincia_sel" : "Misiones",   # Contexto del estudio: NEA — Misiones
         "panel"         : "qa",
         "localidades_default": ["Posadas", "Garupá", "Itaembé Guazú"],
@@ -388,6 +389,20 @@ def _run_audit():
             )
         finally:
             engine.close()
+        # Transparencia: si el usuario pidió reverificación JS pero el
+        # navegador no está disponible en este servidor, avisarle de forma
+        # visible (no solo en el logger de Python, que no se ve en la nube).
+        st.session_state.js_no_disponible = bool(
+            st.session_state.get("selenium_enabled") and engine._js_no_disponible
+        )
+        if st.session_state.js_no_disponible:
+            add_log(
+                "ADVERTENCIA: la reverificación con navegador (Playwright) fue "
+                "solicitada pero NO está disponible en este servidor. La "
+                "auditoría se completó SOLO con verificación estática. "
+                "Local: 'playwright install chromium'. Streamlit Cloud: "
+                "declarar 'chromium' en packages.txt.", "ERR",
+            )
         st.session_state.audit_done = True
         st.session_state.panel      = "qa"
         add_log("Auditoría QA finalizada.", "OK")
@@ -799,6 +814,15 @@ def _panel_qa():
     """Resultados de auditoría QA — tabla académica."""
     st.markdown('<div class="res-seccion">Resultados de la auditoría QA</div>',
                 unsafe_allow_html=True)
+
+    if st.session_state.get("js_no_disponible"):
+        st.warning(
+            "La reverificación con navegador (Playwright) fue solicitada pero "
+            "no está disponible en este servidor: los resultados provienen "
+            "únicamente de la verificación estática. Para habilitarla — "
+            "Local: `playwright install chromium` · Streamlit Cloud: declarar "
+            "`chromium` en `packages.txt` (raíz del repositorio) y redesplegar."
+        )
 
     try:
         from modules.storage  import DatabaseManager

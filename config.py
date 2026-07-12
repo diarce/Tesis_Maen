@@ -180,6 +180,16 @@ JS_RENDER_CONFIG = {
     "check_types_reverificables": [
         "element_exists", "text_pattern", "element_attribute", "accessibility"
     ],
+    # Rutas candidatas del Chromium del SISTEMA (fallback cuando el binario
+    # gestionado por Playwright no está instalado). Es el patrón para
+    # Streamlit Cloud: declarar 'chromium' en packages.txt (apt) y el
+    # fetcher lo encuentra automáticamente en estas rutas.
+    "executable_path_candidates": [
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+    ],
 }
 
 
