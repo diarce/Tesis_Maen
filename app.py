@@ -1052,6 +1052,99 @@ def _panel_catalogo():
         )
 
 
+def _panel_visualizaciones():
+    """
+    Panel de visualizaciones académicas: ICC, radar multi-sitio y mapa de calor.
+    Renderiza los gráficos SVG del módulo reporter directamente en la interfaz.
+    """
+    import streamlit.components.v1 as components
+    from modules.storage  import DatabaseManager
+    from modules.reporter import HTMLReporter
+    from config import DB_PATH
+
+    db      = DatabaseManager(DB_PATH)
+    sites   = db.get_sites()
+    scores  = db.get_dimension_scores()
+    results = db.get_audit_results()
+
+    if not scores:
+        st.info("Sin datos de auditoría. Ejecute el proceso o el modo Demo.")
+        return
+
+    by_site: dict = {}
+    for row in scores:
+        by_site.setdefault(row["site_id"], {})[row["dimension_id"]] = row
+
+    ids_activos   = set(by_site.keys())
+    company_ids   = {c["id"] for c in st.session_state.companies}
+    ids_cruzados  = ids_activos & company_ids
+    ids_mostrar   = ids_cruzados if ids_cruzados else ids_activos
+    sites_activos = [s for s in sites if s["id"] in ids_mostrar]
+    by_site_act   = {k: v for k, v in by_site.items() if k in ids_mostrar}
+    results_act   = [r for r in results if r["site_id"] in ids_mostrar]
+
+    rep = HTMLReporter(db)
+    # CSS base del reporter para renderizado aislado
+    css_tag = rep._css()
+
+    def _render(titulo: str, html_body: str, height: int, nota: str = ""):
+        st.markdown(
+            f'<div class="res-seccion">{titulo}</div>',
+            unsafe_allow_html=True,
+        )
+        if nota:
+            st.markdown(
+                f'<div class="nota-met">{nota}</div>',
+                unsafe_allow_html=True,
+            )
+        full = (
+            "<!DOCTYPE html><html><head>"
+            + css_tag
+            + "</head><body style='margin:0;padding:8px;background:#fff'>"
+            + html_body
+            + "</body></html>"
+        )
+        components.html(full, height=height, scrolling=False)
+
+    # ── 1. Barras ICC ─────────────────────────────────────────────────────────
+    n_sites = len(sites_activos)
+    alto_barras = max(160, n_sites * 48 + 80)
+    # Extraer solo el SVG del método (sin el wrapper .seccion)
+    svg_barras = rep._seccion_barras_svg(sites_activos, by_site_act)
+    _render(
+        "Indice de Calidad Compuesto (ICC) por plataforma",
+        svg_barras,
+        alto_barras,
+        "ICC ponderado = &sum;(S<sub>i,k</sub> &times; w<sub>k</sub>) / &sum;w<sub>k</sub> "
+        "| Escala 0&ndash;3 | Lineas de referencia: 1,5 (critico/parcial) y 2,5 (parcial/pleno)",
+    )
+
+    st.write("")
+
+    # ── 2. Radar multi-sitio ──────────────────────────────────────────────────
+    svg_radar = rep._seccion_radar_svg(sites_activos, by_site_act)
+    _render(
+        "Perfil de cumplimiento por dimension — Grafico de radar",
+        svg_radar,
+        460,
+        "Cada poligono representa el perfil de una plataforma en las 8 dimensiones QA. "
+        "La linea discontinua es el promedio del conjunto.",
+    )
+
+    st.write("")
+
+    # ── 3. Mapa de calor ──────────────────────────────────────────────────────
+    html_hm = rep._seccion_heatmap_html(sites_activos, results_act)
+    alto_hm = max(500, len(results_act) * 22 + 180)
+    _render(
+        "Mapa de calor — Indicadores &times; Plataformas",
+        html_hm,
+        min(alto_hm, 900),
+        "Intensidad del color: azul oscuro = Pleno (3) | azul medio = Parcial (2) "
+        "| azul claro = No cumple (1) | gris = No aplica (0).",
+    )
+
+
 def _panel_log():
     """Log de ejecución del proceso."""
     st.markdown('<div class="res-seccion">Registro de ejecución</div>',
@@ -1186,16 +1279,16 @@ with col_izq:
 with col_der:
     # Navegación de vistas
     vista_opts = {
-        "Resultados QA"     : "qa",
-        "Datos del catálogo": "catalogo",
-        "Log de ejecución"  : "log",
-        "Exportar"          : "exportar",
+        "Resultados QA"  : "qa",
+        "Visualizaciones": "viz",
+        "Log de ejecución": "log",
+        "Exportar"       : "exportar",
     }
-    vista_idx = list(vista_opts.values()).index(
-        st.session_state.get("panel", "qa")
-        if st.session_state.get("panel", "qa") in vista_opts.values()
-        else "qa"
-    )
+    panel_actual = st.session_state.get("panel", "qa")
+    if panel_actual not in vista_opts.values():
+        panel_actual = "qa"
+    vista_idx = list(vista_opts.values()).index(panel_actual)
+
     vista_sel = st.radio(
         "Sección:",
         options          = list(vista_opts.keys()),
@@ -1213,9 +1306,9 @@ with col_der:
             _panel_qa()
         else:
             _panel_bienvenida()
-    elif st.session_state.panel == "catalogo":
-        if st.session_state.scrape_done:
-            _panel_catalogo()
+    elif st.session_state.panel == "viz":
+        if st.session_state.audit_done:
+            _panel_visualizaciones()
         else:
             _panel_bienvenida()
     elif st.session_state.panel == "log":

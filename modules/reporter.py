@@ -235,6 +235,11 @@ class HTMLReporter:
         for row in scores:
             by_site_scores.setdefault(row["site_id"], {})[row["dimension_id"]] = row
 
+        # CRÍTICO: solo incluir sitios que tienen resultados reales en la BD.
+        # Evita que registros huérfanos de sesiones anteriores aparezcan en el informe.
+        ids_con_resultados = set(by_site_scores.keys())
+        sites = [s for s in sites if s["id"] in ids_con_resultados]
+
         return f"""<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -266,8 +271,6 @@ class HTMLReporter:
 {self._section_radar_multi(sites, by_site_scores)}
 {self._section_matriz(sites, by_site_scores)}
 {self._section_heatmap_casos(sites, results)}
-{self._section_catalogo_agregado(sites, products)}
-{self._section_precios_agregado(sites, history)}
 </div>
 <div class="pie">
   Documento generado por el sistema de auditoria academica AuditMayorista.
@@ -779,6 +782,225 @@ class HTMLReporter:
   <div class="nota">Los valores 0 corresponden a indicadores no verificables en la sesion
   de relevamiento (p. ej. paginas que requieren autenticacion previa para ser auditadas).</div>
 </div>"""
+
+
+    # ── Métodos SVG puros para renderizado en Streamlit ───────────────────────
+
+    def _seccion_barras_svg(self, sites: list, by_site_scores: dict) -> str:
+        """Solo el SVG del gráfico de barras ICC (sin wrapper .seccion)."""
+        if not by_site_scores:
+            return "<p>Sin datos.</p>"
+        site_map = build_anon_map(sites)
+        pesos    = {d: QA_DIMENSIONS[d]["weight"] for d in QA_DIMENSIONS}
+
+        items = []
+        for sid, dim_data in sorted(by_site_scores.items()):
+            wsum = sum(dim_data[d]["avg_compliance"] * pesos[d]
+                       for d in pesos if d in dim_data)
+            pw   = sum(pesos[d] for d in pesos if d in dim_data)
+            icc  = round(wsum / pw, 2) if pw else 0
+            items.append((site_map.get(sid, sid), icc))
+
+        bw, bh, gap = 360, 30, 12
+        pad_l = 140
+        escala  = bw / 3.0
+        total_h = (bh + gap) * len(items) + 70
+        vw      = pad_l + bw + 80
+
+        barras = ""
+        for i, (nombre, icc) in enumerate(items):
+            y     = 30 + i * (bh + gap)
+            ancho = round(icc * escala, 1)
+            fill  = "#1a1a1a" if icc >= 2.5 else ("#666" if icc >= 1.5 else "#bbb")
+            barras += (
+                f'<text x="{pad_l-8}" y="{y+bh//2+4}" text-anchor="end" '
+                f'font-size="11" fill="#333">{nombre}</text>'
+                f'<rect x="{pad_l}" y="{y}" width="{ancho}" height="{bh}" '
+                f'fill="{fill}" rx="2"/>'
+                f'<text x="{pad_l+ancho+5}" y="{y+bh//2+4}" '
+                f'font-size="11" fill="#1a1a1a" font-weight="bold">{icc:.2f}</text>'
+            )
+
+        refs = ""
+        for v in [1.0, 1.5, 2.0, 2.5, 3.0]:
+            xr = pad_l + round(v * escala)
+            dash = "4,3" if v in (1.5, 2.5) else "none"
+            col  = "#888" if v in (1.5, 2.5) else "#ddd"
+            refs += (
+                f'<line x1="{xr}" y1="18" x2="{xr}" y2="{total_h-25}" '
+                f'stroke="{col}" stroke-width="1" stroke-dasharray="{dash}"/>'
+                f'<text x="{xr}" y="14" text-anchor="middle" font-size="9" fill="#999">{v:.1f}</text>'
+            )
+
+        return (
+            f'<svg viewBox="0 0 {vw} {total_h}" width="100%" '
+            f'xmlns="http://www.w3.org/2000/svg">'
+            f'{refs}{barras}'
+            f'<text x="{pad_l}" y="{total_h-8}" font-size="9" fill="#888" font-style="italic">'
+            f'Escala 0-3 | Referencia: 1,5 critico/parcial — 2,5 parcial/pleno</text>'
+            f'</svg>'
+        )
+
+    def _seccion_radar_svg(self, sites: list, by_site_scores: dict) -> str:
+        """Solo el SVG del radar multi-sitio (sin wrapper .seccion)."""
+        if not by_site_scores:
+            return "<p>Sin datos.</p>"
+        site_map = build_anon_map(sites)
+        dim_ids  = sorted(QA_DIMENSIONS.keys())
+        N        = len(dim_ids)
+        cx, cy   = 210, 205
+        r_max    = 135
+
+        angles = [math.pi / 2 - 2 * math.pi * i / N for i in range(N)]
+
+        rings = ""
+        for lvl in [1, 2, 3]:
+            pts = " ".join(
+                f"{cx+r_max*(lvl/3)*math.cos(a):.1f},{cy-r_max*(lvl/3)*math.sin(a):.1f}"
+                for a in angles
+            )
+            rings += (f'<polygon points="{pts}" fill="none" '
+                      f'stroke="{"#bbb" if lvl<3 else "#999"}" stroke-width="0.8"/>')
+            rings += (f'<text x="{cx+4}" y="{cy-r_max*(lvl/3)-3:.0f}" '
+                      f'font-size="8" fill="#aaa">{lvl}</text>')
+
+        axes = ""
+        for a, did in zip(angles, dim_ids):
+            x2, y2 = cx+r_max*math.cos(a), cy-r_max*math.sin(a)
+            axes += f'<line x1="{cx}" y1="{cy}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="#ddd" stroke-width="0.8"/>'
+            lx = cx+(r_max+20)*math.cos(a)
+            ly = cy-(r_max+20)*math.sin(a)
+            ca = math.cos(a)
+            ta = "middle" if abs(ca)<0.25 else ("start" if ca>0 else "end")
+            nm = QA_DIMENSIONS.get(did,{}).get("name","")[:10]
+            axes += (f'<text x="{lx:.1f}" y="{ly:.1f}" font-size="9" fill="#222" '
+                     f'text-anchor="{ta}" font-weight="bold">{did}</text>')
+            axes += (f'<text x="{lx:.1f}" y="{ly+11:.1f}" font-size="7.5" fill="#555" '
+                     f'text-anchor="{ta}">{nm}</text>')
+
+        estilos = [
+            ("rgba(20,20,20,.12)",  "#1a1a1a", "2",   "none"),
+            ("rgba(80,80,80,.10)",  "#555",    "1.8", "6,3"),
+            ("rgba(140,140,140,.10)","#999",   "1.5", "3,3"),
+        ]
+        poligs = ""
+        leyenda = ""
+        for idx, (sid, dim_data) in enumerate(sorted(by_site_scores.items())):
+            fc, stk, sw, dash = estilos[idx % len(estilos)]
+            vals = [dim_data.get(d,{}).get("avg_compliance",0) for d in dim_ids]
+            pts  = " ".join(
+                f"{cx+r_max*(v/3)*math.cos(a):.1f},{cy-r_max*(v/3)*math.sin(a):.1f}"
+                for a,v in zip(angles,vals)
+            )
+            da = f'stroke-dasharray="{dash}"' if dash!="none" else ""
+            poligs += (f'<polygon points="{pts}" fill="{fc}" stroke="{stk}" '
+                       f'stroke-width="{sw}" {da}/>')
+            for a,v in zip(angles,vals):
+                xp,yp = cx+r_max*(v/3)*math.cos(a), cy-r_max*(v/3)*math.sin(a)
+                poligs += f'<circle cx="{xp:.1f}" cy="{yp:.1f}" r="3" fill="{stk}"/>'
+            icc    = round(sum(vals)/len(vals),2)
+            nombre = site_map.get(sid,sid)
+            ly_l   = 50 + idx*28
+            da_l   = f'stroke-dasharray="{dash}"' if dash!="none" else ""
+            leyenda += (
+                f'<line x1="440" y1="{ly_l}" x2="470" y2="{ly_l}" '
+                f'stroke="{stk}" stroke-width="{sw}" {da_l}/>'
+                f'<circle cx="455" cy="{ly_l}" r="3" fill="{stk}"/>'
+                f'<text x="476" y="{ly_l+4}" font-size="10" fill="#222">{nombre}</text>'
+                f'<text x="476" y="{ly_l+16}" font-size="9" fill="#666">ICC: {icc:.2f}</text>'
+            )
+
+        prom_vals = [
+            sum(by_site_scores[sid].get(d,{}).get("avg_compliance",0)
+                for sid in by_site_scores) / len(by_site_scores)
+            for d in dim_ids
+        ]
+        pts_p = " ".join(
+            f"{cx+r_max*(v/3)*math.cos(a):.1f},{cy-r_max*(v/3)*math.sin(a):.1f}"
+            for a,v in zip(angles,prom_vals)
+        )
+        prom_icc = round(sum(prom_vals)/len(prom_vals),2)
+        poligs  += (f'<polygon points="{pts_p}" fill="none" stroke="#333" '
+                    f'stroke-width="2.5" stroke-dasharray="8,3" opacity=".6"/>')
+        leyenda += (
+            f'<line x1="440" y1="145" x2="470" y2="145" stroke="#333" '
+            f'stroke-width="2.5" stroke-dasharray="8,3" opacity=".6"/>'
+            f'<text x="476" y="149" font-size="10" fill="#222">Promedio</text>'
+            f'<text x="476" y="161" font-size="9" fill="#666">ICC: {prom_icc:.2f}</text>'
+        )
+        return (
+            f'<svg viewBox="0 0 660 420" width="100%" xmlns="http://www.w3.org/2000/svg">'
+            f'{rings}{axes}{poligs}{leyenda}'
+            f'<text x="210" y="408" text-anchor="middle" font-size="9" fill="#888" '
+            f'font-style="italic">Escala 0-3 | Mayor superficie = mayor madurez funcional</text>'
+            f'</svg>'
+        )
+
+    def _seccion_heatmap_html(self, sites: list, results: list) -> str:
+        """Solo la tabla HTML del heatmap (sin wrapper .seccion)."""
+        if not results:
+            return "<p>Sin datos.</p>"
+        site_map = build_anon_map(sites)
+        site_ids = sorted({r["site_id"] for r in results})
+        cols     = [site_map.get(sid, sid) for sid in site_ids]
+
+        datos: dict = {}
+        nombres: dict = {}
+        for r in results:
+            datos.setdefault(r["dimension_id"],{})                 .setdefault(r["test_case_id"],{})[r["site_id"]] = r["compliance"]
+            nombres[r["test_case_id"]] = r["test_case_name"][:30]
+
+        colores  = {0:"#f0f0f0",1:"#c8d8e8",2:"#5a8fb5",3:"#1a4a6e"}
+        txt_cols = {0:"#999",   1:"#333",   2:"#fff",   3:"#fff"}
+
+        leyenda = "".join(
+            f'<span style="display:inline-flex;align-items:center;gap:4px;margin-right:14px">'
+            f'<span style="width:14px;height:14px;background:{colores[v]};border:1px solid #ccc;display:inline-block"></span>'
+            f'<span style="font-size:11px">{t}</span></span>'
+            for v,t in [(3,"Pleno (3)"),(2,"Parcial (2)"),(1,"No cumple (1)"),(0,"N/A")]
+        )
+
+        tablas = ""
+        for did in sorted(datos.keys()):
+            dim_nombre = QA_DIMENSIONS.get(did,{}).get("name",did)
+            enc = "".join(
+                f'<th style="background:#1a1a1a;color:#fff;padding:5px 10px;'
+                f'font-size:10px;text-align:center">{c}</th>' for c in cols
+            )
+            filas = ""
+            for tcid in sorted(datos[did].keys()):
+                celdas = ""
+                for sid in site_ids:
+                    v  = datos[did][tcid].get(sid)
+                    bg = colores.get(v,"#f0f0f0") if v is not None else "#f8f8f8"
+                    fc = txt_cols.get(v,"#aaa")   if v is not None else "#ccc"
+                    vt = str(v) if v is not None else "-"
+                    tp = ["N/A","No cumple","Parcial","Pleno"][v] if v is not None else "nd"
+                    celdas += (f'<td title="{tp}" style="background:{bg};color:{fc};'
+                               f'text-align:center;padding:4px 10px;font-family:monospace;'
+                               f'font-size:11px;font-weight:bold;border-bottom:1px solid #eee">'
+                               f'{vt}</td>')
+                filas += (f'<tr><td style="font-family:monospace;font-size:10px;'
+                          f'padding:4px 6px;white-space:nowrap;border-bottom:1px solid #eee">'
+                          f'{tcid}</td>'
+                          f'<td style="font-size:11px;padding:4px 8px;min-width:180px;'
+                          f'border-bottom:1px solid #eee">{nombres.get(tcid,"")}</td>'
+                          f'{celdas}</tr>')
+            tablas += (
+                f'<div style="margin-bottom:20px">'
+                f'<div style="font-size:13px;font-weight:bold;background:#f2f2f2;'
+                f'padding:6px 10px;border-left:3px solid #1a1a1a;margin-bottom:6px">'
+                f'{did} — {dim_nombre}</div>'
+                f'<div style="overflow-x:auto"><table style="border-collapse:collapse;'
+                f'font-size:12px;width:auto"><thead><tr>'
+                f'<th style="background:#1a1a1a;color:#fff;padding:5px 6px;font-size:10px;'
+                f'text-align:left">ID</th>'
+                f'<th style="background:#1a1a1a;color:#fff;padding:5px 8px;font-size:10px;'
+                f'text-align:left">Indicador</th>'
+                f'{enc}</tr></thead><tbody>{filas}</tbody></table></div></div>'
+            )
+        return f'<div style="margin-bottom:8px">{leyenda}</div>{tablas}'
+
 
     def _section_catalogo_agregado(self, sites: list, products: list) -> str:
         """Catalogo de productos relevados: estadisticas agregadas del conjunto."""
