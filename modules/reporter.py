@@ -262,8 +262,10 @@ class HTMLReporter:
 <div class="contenido">
 {self._section_distribucion(results)}
 {self._section_dims_agregado(scores)}
+{self._section_barras_icc(sites, by_site_scores)}
+{self._section_radar_multi(sites, by_site_scores)}
 {self._section_matriz(sites, by_site_scores)}
-{self._section_detalle_casos(sites, results)}
+{self._section_heatmap_casos(sites, results)}
 {self._section_catalogo_agregado(sites, products)}
 {self._section_precios_agregado(sites, history)}
 </div>
@@ -489,6 +491,295 @@ class HTMLReporter:
   {html_dims}
 </div>"""
 
+    def _section_barras_icc(self, sites: list, by_site_scores: dict) -> str:
+        """Grafico de barras horizontales del Indice de Calidad Compuesto."""
+        if not by_site_scores:
+            return ""
+        site_map = build_anon_map(sites)
+        pesos    = {d: QA_DIMENSIONS[d]["weight"] for d in QA_DIMENSIONS}
+
+        items = []
+        for sid, dim_data in sorted(by_site_scores.items()):
+            vals  = [dim_data[d]["avg_compliance"] for d in sorted(QA_DIMENSIONS) if d in dim_data]
+            wsum  = sum(dim_data[d]["avg_compliance"] * pesos[d] for d in pesos if d in dim_data)
+            pw    = sum(pesos[d] for d in pesos if d in dim_data)
+            icc   = round(wsum / pw, 2) if pw else 0
+            items.append((site_map.get(sid, sid), icc))
+
+        # SVG
+        bw, bh, gap = 380, 28, 10
+        pad_l = 130
+        escala = bw / 3.0
+        total_h = (bh + gap) * len(items) + 60
+        vw = pad_l + bw + 80
+
+        barras = ""
+        for i, (nombre, icc) in enumerate(items):
+            y    = 30 + i * (bh + gap)
+            ancho= round(icc * escala, 1)
+            fill = "#1a1a1a" if icc >= 2.5 else ("#666" if icc >= 1.5 else "#bbb")
+            txt_col = "white" if icc >= 1.5 else "#333"
+            barras += f'''
+  <text x="{pad_l - 6}" y="{y + bh//2 + 4}" text-anchor="end"
+        font-size="11" fill="#333">{nombre}</text>
+  <rect x="{pad_l}" y="{y}" width="{ancho}" height="{bh}"
+        fill="{fill}" rx="2"/>
+  <text x="{pad_l + ancho + 5}" y="{y + bh//2 + 4}"
+        font-size="11" fill="#1a1a1a" font-weight="bold">{icc:.2f}</text>'''
+
+        # Lineas de referencia en 1, 1.5, 2, 2.5, 3
+        refs = ""
+        for v in [1.0, 1.5, 2.0, 2.5, 3.0]:
+            xr = pad_l + round(v * escala)
+            refs += f'''
+  <line x1="{xr}" y1="15" x2="{xr}" y2="{total_h - 30}"
+        stroke="{'#999' if v in (1.5,2.5) else '#ddd'}"
+        stroke-width="{'1.5' if v in (1.5,2.5) else '0.8'}"
+        stroke-dasharray="{'4,3' if v in (1.5,2.5) else 'none'}"/>
+  <text x="{xr}" y="12" text-anchor="middle" font-size="9" fill="#888">{v:.1f}</text>'''
+
+        # Leyenda de rangos
+        leyenda = f"""
+  <rect x="{pad_l}" y="{total_h - 22}" width="{round(1.5*escala)}" height="10" fill="#bbb"/>
+  <text x="{pad_l + 4}" y="{total_h - 14}" font-size="8" fill="#555">Critico (&lt;1,5)</text>
+  <rect x="{pad_l + round(1.5*escala) + 60}" y="{total_h - 22}" width="{round(escala)}" height="10" fill="#666"/>
+  <text x="{pad_l + round(1.5*escala) + 64}" y="{total_h - 14}" font-size="8" fill="#555">Parcial (1,5–2,5)</text>
+  <rect x="{pad_l + round(2.5*escala) + 130}" y="{total_h - 22}" width="{round(0.5*escala)}" height="10" fill="#1a1a1a"/>
+  <text x="{pad_l + round(2.5*escala) + 134}" y="{total_h - 14}" font-size="8" fill="#555">Pleno (≥2,5)</text>"""
+
+        svg = f"""<svg viewBox="0 0 {vw} {total_h}" width="100%"
+     xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-label="Grafico de barras del Indice de Calidad Compuesto por plataforma">
+  {refs}
+  {barras}
+  {leyenda}
+</svg>"""
+        return f"""
+<div class="seccion">
+  <div class="sec-num">3.</div>
+  <div class="sec-titulo">Indice de Calidad Compuesto (ICC) por plataforma</div>
+  <div class="sec-desc">El ICC es la media ponderada de los ocho scores dimensionales.
+  Formula: ICC(i) = &sum;(S&#7522;&#8317;k&#8318; &times; w&#7522;) / &sum;w&#7522;,
+  donde la suma de pesos es 11,5. Ninguna plataforma alcanza cumplimiento pleno (≥ 2,5).</div>
+  <div class="vis-wrap">{svg}</div>
+  <div class="nota">Lineas de referencia: 1,5 = umbral critico / parcial | 2,5 = umbral parcial / pleno.
+  Barras mas oscuras indican mayor nivel de cumplimiento.</div>
+</div>"""
+
+    def _section_radar_multi(self, sites: list, by_site_scores: dict) -> str:
+        """Grafico de radar con todas las plataformas superpuestas."""
+        if not by_site_scores:
+            return ""
+
+        site_map = build_anon_map(sites)
+        dim_ids  = sorted(QA_DIMENSIONS.keys())
+        N        = len(dim_ids)
+        cx, cy   = 220, 215
+        r_max    = 140
+
+        angles = [math.pi / 2 - 2 * math.pi * i / N for i in range(N)]
+
+        # Anillos de referencia
+        rings = ""
+        for lvl in [1, 2, 3]:
+            pts = " ".join(
+                f"{cx + r_max*(lvl/3)*math.cos(a):.1f},"
+                f"{cy - r_max*(lvl/3)*math.sin(a):.1f}"
+                for a in angles
+            )
+            lw = "1" if lvl == 3 else "0.7"
+            lc = "#ccc" if lvl < 3 else "#999"
+            rings += f'<polygon points="{pts}" fill="none" stroke="{lc}" stroke-width="{lw}"/>'
+            yr   = cy - r_max * (lvl/3) - 3
+            rings += f'<text x="{cx+4}" y="{yr:.0f}" font-size="8" fill="#aaa">{lvl}</text>'
+
+        # Ejes y etiquetas
+        axes = ""
+        for a, did in zip(angles, dim_ids):
+            x2  = cx + r_max * math.cos(a)
+            y2  = cy - r_max * math.sin(a)
+            axes += f'<line x1="{cx}" y1="{cy}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="#ddd" stroke-width="0.8"/>'
+            lx  = cx + (r_max + 22) * math.cos(a)
+            ly  = cy - (r_max + 22) * math.sin(a)
+            ca  = math.cos(a)
+            ta  = "middle" if abs(ca) < 0.25 else ("start" if ca > 0 else "end")
+            nombre_corto = QA_DIMENSIONS.get(did, {}).get("name", did)[:10]
+            axes += (f'<text x="{lx:.1f}" y="{ly:.1f}" font-size="9" fill="#222" '
+                     f'text-anchor="{ta}" font-weight="bold">{did}</text>')
+            axes += (f'<text x="{lx:.1f}" y="{ly+11:.1f}" font-size="7.5" fill="#555" '
+                     f'text-anchor="{ta}">{nombre_corto}</text>')
+
+        # Estilos por plataforma (grayscale, distinguibles en impresion)
+        estilos = [
+            ("rgba(20,20,20,0.12)", "#1a1a1a", "2",   "none",    "circle",  "#1a1a1a"),
+            ("rgba(80,80,80,0.10)", "#555555", "1.8", "6,3",     "square",  "#555555"),
+            ("rgba(140,140,140,0.10)", "#999",  "1.5", "3,3",    "diamond", "#999999"),
+        ]
+
+        poligonos = ""
+        leyenda_items = ""
+
+        for idx, (sid, dim_data) in enumerate(sorted(by_site_scores.items())):
+            fill_col, stk_col, sw, dash, symbol, leg_col = estilos[idx % len(estilos)]
+            values = [dim_data.get(d, {}).get("avg_compliance", 0) for d in dim_ids]
+            pts = " ".join(
+                f"{cx + r_max*(v/3)*math.cos(a):.1f},{cy - r_max*(v/3)*math.sin(a):.1f}"
+                for a, v in zip(angles, values)
+            )
+            da  = f'stroke-dasharray="{dash}"' if dash != "none" else ""
+            poligonos += (f'<polygon points="{pts}" '
+                          f'fill="{fill_col}" stroke="{stk_col}" '
+                          f'stroke-width="{sw}" {da}/>')
+
+            # Puntos en los vértices
+            for a, v in zip(angles, values):
+                xp = cx + r_max * (v/3) * math.cos(a)
+                yp = cy - r_max * (v/3) * math.sin(a)
+                poligonos += f'<circle cx="{xp:.1f}" cy="{yp:.1f}" r="3" fill="{stk_col}"/>'
+
+            nombre = site_map.get(sid, sid)
+            icc    = round(sum(values)/len(values), 2) if values else 0
+            ly_leg = 55 + idx * 28
+            da_leg = f'stroke-dasharray="{dash}"' if dash != "none" else ""
+            leyenda_items += (
+                f'<line x1="460" y1="{ly_leg}" x2="500" y2="{ly_leg}" '
+                f'stroke="{stk_col}" stroke-width="{sw}" {da_leg}/>'
+                f'<circle cx="480" cy="{ly_leg}" r="3" fill="{stk_col}"/>'
+                f'<text x="506" y="{ly_leg+4}" font-size="10" fill="#222">'
+                f'{nombre}</text>'
+                f'<text x="506" y="{ly_leg+16}" font-size="9" fill="#555">'
+                f'ICC: {icc:.2f}</text>'
+            )
+
+        # Promedio general
+        prom_vals = []
+        for d in dim_ids:
+            vals_d = [dim_data.get(d, {}).get("avg_compliance", 0)
+                      for dim_data in by_site_scores.values()]
+            prom_vals.append(sum(vals_d)/len(vals_d) if vals_d else 0)
+        pts_prom = " ".join(
+            f"{cx + r_max*(v/3)*math.cos(a):.1f},{cy - r_max*(v/3)*math.sin(a):.1f}"
+            for a, v in zip(angles, prom_vals)
+        )
+        poligonos += (f'<polygon points="{pts_prom}" fill="none" stroke="#333" '
+                      f'stroke-width="2.5" stroke-dasharray="8,3" opacity="0.6"/>')
+        prom_icc = round(sum(prom_vals)/len(prom_vals), 2)
+        leyenda_items += (
+            f'<line x1="460" y1="145" x2="500" y2="145" stroke="#333" '
+            f'stroke-width="2.5" stroke-dasharray="8,3" opacity="0.6"/>'
+            f'<text x="506" y="149" font-size="10" fill="#222">Promedio general</text>'
+            f'<text x="506" y="161" font-size="9" fill="#555">ICC: {prom_icc:.2f}</text>'
+        )
+
+        svg = f"""<svg viewBox="0 0 700 440" width="100%"
+     xmlns="http://www.w3.org/2000/svg" role="img"
+     aria-label="Grafico de radar multisitio con 8 dimensiones de auditoria QA">
+  {rings}
+  {axes}
+  {poligonos}
+  {leyenda_items}
+  <text x="220" y="420" text-anchor="middle" font-size="9" fill="#777"
+        font-style="italic">
+    Escala 0-3 | Cuanto mas grande el poligono, mayor nivel de cumplimiento
+  </text>
+</svg>"""
+
+        return f"""
+<div class="seccion">
+  <div class="sec-num">4.</div>
+  <div class="sec-titulo">Perfil de cumplimiento por dimension — Grafico de radar</div>
+  <div class="sec-desc">Cada poligono representa el perfil de una plataforma auditada
+  en las ocho dimensiones de analisis. Las plataformas con mayor superficie ocupada
+  presentan mayor madurez funcional. La linea discontinua gruesa representa el
+  promedio del conjunto relevado.</div>
+  <div class="vis-wrap">{svg}</div>
+  <div class="nota">Anillos de referencia: 1 (critico), 2 (parcial), 3 (pleno).
+  Los poligonos se diferencian por tipo de linea para facilitar la lectura en impresion en escala de grises.</div>
+</div>"""
+
+    def _section_heatmap_casos(self, sites: list, results: list) -> str:
+        """Mapa de calor: casos de prueba (filas) x plataformas (columnas)."""
+        if not results:
+            return ""
+
+        site_map = build_anon_map(sites)
+        site_ids = sorted({r["site_id"] for r in results})
+        site_cols= [site_map.get(sid, sid) for sid in site_ids]
+
+        # Organizar: {dim_id: {test_case_id: {site_id: compliance}}}
+        datos: dict = {}
+        nombres_tc: dict = {}
+        for r in results:
+            datos.setdefault(r["dimension_id"], {})\
+                 .setdefault(r["test_case_id"], {})[r["site_id"]] = r["compliance"]
+            nombres_tc[r["test_case_id"]] = r["test_case_name"][:28]
+
+        # Colores de la escala (azul academico: mas oscuro = mayor cumplimiento)
+        colores  = {0: "#f0f0f0", 1: "#c8d8e8", 2: "#5a8fb5", 3: "#1a4a6e"}
+        txt_cols = {0: "#888",    1: "#333",    2: "#fff",    3: "#fff"}
+
+        # CSS de cabeceras rotadas y tabla compacta
+        col_w    = max(80, min(130, 600 // max(len(site_ids), 1)))
+        leyenda_html = "".join(
+            f'<span style="display:inline-block;width:14px;height:14px;'
+            f'background:{colores[v]};border:1px solid #ccc;'
+            f'vertical-align:middle;margin-right:3px;"></span>'
+            f'<span style="font-size:11px;margin-right:12px;">{t}</span>'
+            for v, t in [(3,"Pleno (3)"),(2,"Parcial (2)"),(1,"No cumple (1)"),(0,"N/A (0)")]
+        )
+
+        tablas_html = ""
+        for did in sorted(datos.keys()):
+            dim_nombre = QA_DIMENSIONS.get(did, {}).get("name", did)
+            filas = ""
+            for tcid in sorted(datos[did].keys()):
+                nombre_tc = nombres_tc.get(tcid, tcid)
+                celdas = ""
+                for sid in site_ids:
+                    v   = datos[did][tcid].get(sid)
+                    if v is None:
+                        celdas += f'<td class="hm-cell" style="background:#f8f8f8;color:#ccc;">-</td>'
+                    else:
+                        bg  = colores.get(v, "#f0f0f0")
+                        fc  = txt_cols.get(v, "#333")
+                        tip = ["N/A","No cumple","Parcial","Pleno"][v]
+                        celdas += (f'<td class="hm-cell" style="background:{bg};color:{fc};" '
+                                   f'title="{tip}">{v}</td>')
+                filas += f'<tr><td class="hm-tc">{tcid}</td><td class="hm-nombre">{nombre_tc}</td>{celdas}</tr>'
+
+            enc = "".join(
+                f'<th class="hm-th" style="min-width:{col_w}px">{col}</th>'
+                for col in site_cols
+            )
+            tablas_html += f"""
+<div class="bloque-dim">
+  <div class="dim-titulo">{did} — {dim_nombre}</div>
+  <div class="tabla-scroll">
+  <table class="hm-table">
+    <thead><tr>
+      <th class="hm-tc" style="text-align:left">ID</th>
+      <th class="hm-nombre" style="text-align:left">Indicador</th>
+      {enc}
+    </tr></thead>
+    <tbody>{filas}</tbody>
+  </table>
+  </div>
+</div>"""
+
+        return f"""
+<div class="seccion">
+  <div class="sec-num">6.</div>
+  <div class="sec-titulo">Mapa de calor — Detalle de indicadores por plataforma</div>
+  <div class="sec-desc">Cada celda indica el valor de cumplimiento obtenido por cada
+  plataforma en cada indicador evaluado. La intensidad del color refleja el nivel
+  de cumplimiento: azul oscuro = pleno, azul medio = parcial, azul claro = no cumple,
+  gris = no aplica.</div>
+  <div style="margin:8px 0 14px">{leyenda_html}</div>
+  {tablas_html}
+  <div class="nota">Los valores 0 corresponden a indicadores no verificables en la sesion
+  de relevamiento (p. ej. paginas que requieren autenticacion previa para ser auditadas).</div>
+</div>"""
+
     def _section_catalogo_agregado(self, sites: list, products: list) -> str:
         """Catalogo de productos relevados: estadisticas agregadas del conjunto."""
         if not products:
@@ -691,6 +982,20 @@ tr:nth-child(even) td { background: #fafafa; }
 .pie   { text-align: center; font-size: 11px; color: #888;
          border-top: 1px solid #ccc; padding: 16px 40px;
          max-width: 960px; margin: 0 auto; }
+
+.vis-wrap      { margin: 14px 0; overflow-x: auto; }
+.vis-wrap svg  { max-width: 100%; height: auto; display: block; }
+.hm-table      { border-collapse: collapse; font-size: 11px; width: auto; }
+.hm-table thead th { background: #1a1a1a; color: #fff;
+                      padding: 6px 8px; font-size: 10px; }
+.hm-tc         { font-family: monospace; font-size: 10px; padding: 4px 6px;
+                  white-space: nowrap; border-bottom: 1px solid #eee; }
+.hm-nombre     { font-size: 11px; padding: 4px 8px; border-bottom: 1px solid #eee;
+                  min-width: 180px; }
+.hm-cell       { text-align: center; padding: 4px 10px; font-family: monospace;
+                  font-size: 11px; font-weight: bold;
+                  border-bottom: 1px solid #eee; cursor: default; }
+.hm-th         { text-align: center !important; font-size: 10px !important; }
 </style>"""
 
 

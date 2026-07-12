@@ -315,27 +315,41 @@ def _save_config():
 
 
 def _run_demo():
+    """
+    Modo demostración: genera datos simulados representativos del mercado
+    mayorista de Misiones (Posadas, Garupá, Itaembé Guazú) sin requerir
+    conexión a internet ni acceso a sitios externos.
+    Uso recomendado cuando los sitios reales bloquean el acceso automatizado.
+    """
     st.session_state.audit_log = []
     install_log_handler()
-    add_log("Iniciando modo demostración (datos simulados).", "INFO")
+    add_log("Iniciando modo demostración — datos simulados del mercado mayorista de Misiones.", "INFO")
     try:
         from modules.storage import DatabaseManager
         from modules.demo    import run_demo, _SIMULATED_SITES
         from config          import DB_PATH
+
         db = DatabaseManager(DB_PATH)
-        # Purgar todos los sitios existentes antes de re-ejecutar el demo
-        sitios_a_limpiar = [s["id"] for s in db.get_sites()] or [s["id"] for s in _SIMULATED_SITES]
-        for sid in sitios_a_limpiar:
-            db.clear_site_results(sid)
-            add_log(f"Datos previos eliminados: {sid}", "INFO")
+        # Limpiar solo los sitios del demo (MIS*), preservar cualquier dato real
+        for s in _SIMULATED_SITES:
+            db.clear_site_results(s["id"])
+        add_log(f"Generando datos para {len(_SIMULATED_SITES)} plataformas simuladas.", "INFO")
+
         run_demo(db)
+
+        # Verificar resultados generados
+        productos = db.get_products()
+        resultados= db.get_audit_results()
+        add_log(f"Demo completado: {len(resultados)} resultados QA, {len(productos)} productos.", "OK")
+        add_log("Los datos simulan el proceso de compra en plataformas mayoristas de consumo masivo.", "OK")
+
         st.session_state.audit_done  = True
         st.session_state.scrape_done = True
         st.session_state.panel       = "qa"
-        add_log("Demostración completada.", "OK")
     except Exception as exc:
-        add_log(f"Error: {exc}", "ERR")
+        add_log(f"Error en demo: {exc}", "ERR")
         add_log(traceback.format_exc(), "ERR")
+        st.session_state.panel = "log"
     st.rerun()
 
 
@@ -391,22 +405,50 @@ def _run_scraping():
         from modules.storage import DatabaseManager
         from modules.scraper import ScrapingEngine
         from config          import DB_PATH
-        db = DatabaseManager(DB_PATH)
-        # Purgar datos de catálogo previos para evitar acumulación entre corridas
+
+        db       = DatabaseManager(DB_PATH)
+        site_ids = {s["id"] for s in sites}
+
+        # Registrar sitios sin limpiar aún (los datos previos se conservan
+        # hasta confirmar que el nuevo scraping produjo resultados)
         for s in sites:
             db.upsert_site(s)
-            db.clear_site_results(s["id"])
-            add_log(f"Datos previos eliminados: {s['id']}", "INFO")
+            add_log(f"Sitio registrado: {s['id']} — {s['name']}", "INFO")
+
         ScrapingEngine(db).run(
             snapshot_number = 1,
             sites_override  = sites,
         )
-        st.session_state.scrape_done = True
-        st.session_state.panel       = "catalogo"
-        add_log("Scraping de catálogo finalizado.", "OK")
+
+        # Verificar si el scraping produjo productos
+        todos_prods = db.get_products()
+        nuevos = [p for p in todos_prods if p["site_id"] in site_ids]
+
+        if nuevos:
+            # Hay resultados: ahora sí limpiar duplicados y conservar solo los nuevos
+            for s in sites:
+                db.clear_site_results(s["id"])
+            ScrapingEngine(db).run(snapshot_number=1, sites_override=sites)
+            st.session_state.scrape_done = True
+            st.session_state.panel       = "catalogo"
+            add_log(f"Scraping completado: {len(nuevos)} productos obtenidos.", "OK")
+        else:
+            add_log("El scraping no obtuvo productos.", "WARN")
+            add_log("Causas probables:", "WARN")
+            for s in sites:
+                from modules.ethics import RobotsChecker
+                from config         import SCRAPING_CONFIG
+                rc      = RobotsChecker(SCRAPING_CONFIG["user_agent"])
+                allowed = rc.is_allowed(s["base_url"] + "/")
+                estado  = "acceso PERMITIDO por robots.txt" if allowed else "BLOQUEADO por robots.txt"
+                add_log(f"  {s['id']} ({s['name']}): {estado}", "WARN")
+            add_log("Sugerencia: ejecute el modo Demo para datos representativos.", "WARN")
+            st.session_state.panel = "log"
+
     except Exception as exc:
         add_log(f"Error: {exc}", "ERR")
         add_log(traceback.format_exc(), "ERR")
+        st.session_state.panel = "log"
     st.rerun()
 
 
@@ -623,9 +665,12 @@ def _grupo_parametros():
     )
 
     st.markdown(
-        '<div class="nota-met">El acceso a los sitios respeta el archivo '
-        '<code>robots.txt</code> y se identifica como bot académico. '
-        'Todos los accesos se registran en <code>outputs/logs/</code>.</div>',
+        '<div class="nota-met">'
+        'El sistema respeta el archivo <code>robots.txt</code> de cada sitio. '
+        'Si un sitio bloquea el acceso automatizado, el scraping no extraerá datos. '
+        'En ese caso, utilice el <b>modo Demo</b> para trabajar con datos '
+        'representativos del mercado mayorista de Misiones sin requerir acceso externo.'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -907,7 +952,21 @@ def _panel_catalogo():
     df = df[df["site_id"].isin(ids_activos)].copy()
 
     if df.empty:
-        st.info("Sin productos disponibles. Ejecute el scraping primero.")
+        st.warning(
+            "No se encontraron productos para los sitios seleccionados.\n\n"
+            "**Causa más frecuente:** los sitios configurados bloquean el acceso "
+            "automatizado mediante `robots.txt`. El sistema respeta esta directiva "
+            "como parte del protocolo ético de scraping.\n\n"
+            "**Alternativas:**\n"
+            "- Ejecute el **modo Demo** para trabajar con datos representativos "
+            "del mercado mayorista de Misiones (sin acceso a internet).\n"
+            "- Agregue sitios que permitan acceso automatizado o solicite "
+            "autorización explícita a las organizaciones a relevar.\n"
+            "- Revise el log de ejecución para ver qué sitios fueron bloqueados."
+        )
+        if st.session_state.audit_log:
+            with st.expander("Ver log de la última ejecución"):
+                st.code("\n".join(st.session_state.audit_log[-40:]), language=None)
         return
 
     df["Sitio"]     = df["site_id"].map(site_map)
