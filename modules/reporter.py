@@ -212,24 +212,31 @@ class HTMLReporter:
         self.db         = db
         self.output_dir = output_dir
 
-    def generate(self) -> Path:
+    def generate(self, site_ids: list[str] | None = None) -> Path:
+        """
+        site_ids: lista opcional de site_id a incluir en el informe (la
+        selección/corrida ACTUAL del usuario). Si se omite (None), se
+        conserva el comportamiento historico: todos los sitios con
+        resultados en la base de datos (uso desde CLI sin selección
+        explícita — ver nota en _build_html).
+        """
         ts       = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_file = self.output_dir / f"informe_auditoria_{ts}.html"
-        html     = self._build_html()
+        html     = self._build_html(site_ids=site_ids)
         out_file.write_text(html, encoding="utf-8")
-        logger.info(f"[HTML] Informe generado: {out_file}")
+        logger.info(f"[HTML] Informe generado: {out_file}"
+                    + (f" (acotado a {len(site_ids)} sitio(s))" if site_ids is not None else ""))
         return out_file
 
     # ── Construcción del HTML ──────────────────────────────────────────────────
 
-    def _build_html(self) -> str:
+    def _build_html(self, site_ids: list[str] | None = None) -> str:
         sites    = self.db.get_sites()
         scores   = self.db.get_dimension_scores()
         results  = self.db.get_audit_results()
         products = self.db.get_products()
         history  = self.db.get_price_history()
         ts_str   = datetime.now().strftime("%d/%m/%Y %H:%M")
-        n_casos  = len(set(r["test_case_id"] for r in results)) if results else 0
 
         by_site_scores: dict[str, dict] = {}
         for row in scores:
@@ -238,7 +245,28 @@ class HTMLReporter:
         # CRÍTICO: solo incluir sitios que tienen resultados reales en la BD.
         # Evita que registros huérfanos de sesiones anteriores aparezcan en el informe.
         ids_con_resultados = set(by_site_scores.keys())
-        sites = [s for s in sites if s["id"] in ids_con_resultados]
+
+        # CRÍTICO (coherencia con el requerimiento del usuario): si se indica
+        # explícitamente el conjunto de sitios de la corrida ACTUAL (site_ids),
+        # el informe se acota exclusivamente a esos sitios, aunque existan en
+        # la base de datos otros sitios con resultados de corridas anteriores.
+        # Si site_ids es None (p. ej. CLI 'report' sin selección explícita),
+        # se conserva el comportamiento previo: todos los sitios con
+        # resultados reales. El tratamiento integral de históricos multi-sesión
+        # queda pendiente para una próxima iteración.
+        if site_ids is not None:
+            ids_objetivo = ids_con_resultados & set(site_ids)
+        else:
+            ids_objetivo = ids_con_resultados
+
+        sites          = [s for s in sites if s["id"] in ids_objetivo]
+        by_site_scores = {sid: d for sid, d in by_site_scores.items() if sid in ids_objetivo}
+        scores         = [row for row in scores if row["site_id"] in ids_objetivo]
+        results        = [r for r in results if r["site_id"] in ids_objetivo]
+        products       = [p for p in products if p["site_id"] in ids_objetivo]
+        history        = [h for h in history if h["site_id"] in ids_objetivo]
+
+        n_casos  = len(set(r["test_case_id"] for r in results)) if results else 0
 
         return f"""<!DOCTYPE html>
 <html lang="es">
@@ -1233,10 +1261,13 @@ class ReportEngine:
         self.csv_reporter = CSVReporter(db)
         self.html_reporter= HTMLReporter(db)
 
-    def generate(self, fmt: str = "all") -> None:
+    def generate(self, fmt: str = "all", site_ids: list[str] | None = None) -> None:
         """
         Genera los informes según el formato solicitado.
         fmt: 'console' | 'csv' | 'html' | 'all'
+        site_ids: sitios de la corrida ACTUAL a incluir en el informe HTML
+                  (ver HTMLReporter._build_html). None = comportamiento
+                  historico sin cambios (uso desde CLI).
         """
         if fmt in ("console", "all"):
             logger.info("[REPORT] Generando reporte de consola…")
@@ -1252,5 +1283,5 @@ class ReportEngine:
 
         if fmt in ("html", "all"):
             logger.info("[REPORT] Generando informe HTML…")
-            html_file = self.html_reporter.generate()
+            html_file = self.html_reporter.generate(site_ids=site_ids)
             print(f"\n  Informe HTML: {html_file}\n")

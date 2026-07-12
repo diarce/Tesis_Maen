@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT))
 # ── Configuración de página ────────────────────────────────────────────────────
 st.set_page_config(
     page_title = "Auditoria Mayorista — Herramienta Académica",
-    page_icon  = "",
+    page_icon  = " ",
     layout     = "wide",
     initial_sidebar_state = "collapsed",
 )
@@ -1052,6 +1052,27 @@ def _panel_catalogo():
         )
 
 
+def _ids_sitios_corrida_actual(ids_con_resultados: set) -> set:
+    """
+    A partir del conjunto de site_id que tienen resultados reales en la BD,
+    determina cuáles corresponden a la selección ACTUAL del usuario en esta
+    sesión (columna izquierda → "Selección de la muestra", st.session_state.companies).
+
+    Esto es lo que garantiza la coherencia solicitada: si el usuario seleccionó
+    3 empresas para esta corrida, el informe y las exportaciones deben reflejar
+    esas 3 — no el total acumulado histórico en outputs/audit.db.
+
+    Si la interseccion resulta vacia (p. ej. al abrir la app sin haber corrido
+    nada todavia en esta sesion), se recurre a todos los sitios con resultados
+    como resguardo defensivo, para no dejar la vista vacia sin motivo aparente.
+    El tratamiento integral de multiples corridas historicas dentro de una
+    misma sesion queda pendiente para una proxima iteracion.
+    """
+    company_ids  = {c["id"] for c in st.session_state.companies}
+    ids_cruzados = ids_con_resultados & company_ids
+    return ids_cruzados if ids_cruzados else ids_con_resultados
+
+
 def _panel_visualizaciones():
     """
     Panel de visualizaciones académicas: ICC, radar multi-sitio y mapa de calor.
@@ -1075,10 +1096,7 @@ def _panel_visualizaciones():
     for row in scores:
         by_site.setdefault(row["site_id"], {})[row["dimension_id"]] = row
 
-    ids_activos   = set(by_site.keys())
-    company_ids   = {c["id"] for c in st.session_state.companies}
-    ids_cruzados  = ids_activos & company_ids
-    ids_mostrar   = ids_cruzados if ids_cruzados else ids_activos
+    ids_mostrar   = _ids_sitios_corrida_actual(set(by_site.keys()))
     sites_activos = [s for s in sites if s["id"] in ids_mostrar]
     by_site_act   = {k: v for k, v in by_site.items() if k in ids_mostrar}
     results_act   = [r for r in results if r["site_id"] in ids_mostrar]
@@ -1178,6 +1196,7 @@ def _panel_exportar():
         from config          import DB_PATH
         db      = DatabaseManager(DB_PATH)
         sites   = db.get_sites()
+        scores  = db.get_dimension_scores()
         results = db.get_audit_results()
         prods   = db.get_products()
     except Exception as exc:
@@ -1188,11 +1207,20 @@ def _panel_exportar():
         st.info("Sin datos disponibles para exportar. Ejecute el proceso primero.")
         return
 
+    # CRÍTICO (coherencia con el requerimiento del usuario): acotar el informe
+    # y las exportaciones de "esta corrida" a los sitios efectivamente
+    # seleccionados en la sesión actual, no al total histórico acumulado en
+    # outputs/audit.db. Ver _ids_sitios_corrida_actual().
+    ids_activos = {row["site_id"] for row in scores}
+    ids_mostrar = _ids_sitios_corrida_actual(ids_activos)
+    results_act = [r for r in results if r["site_id"] in ids_mostrar]
+    prods_act   = [p for p in prods if p["site_id"] in ids_mostrar]
+
     st.write("**Informe académico HTML**")
     if st.button("Generar informe HTML", use_container_width=True):
         try:
             from modules.reporter import HTMLReporter
-            path = HTMLReporter(db).generate()
+            path = HTMLReporter(db).generate(site_ids=list(ids_mostrar))
             st.download_button(
                 "Descargar informe HTML",
                 data      = path.read_text(encoding="utf-8"),
@@ -1208,8 +1236,8 @@ def _panel_exportar():
 
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        if results:
-            df_r = pd.DataFrame(results)
+        if results_act:
+            df_r = pd.DataFrame(results_act)
             st.download_button(
                 "Resultados QA (.csv)",
                 data      = df_r.to_csv(index=False, encoding="utf-8"),
@@ -1218,8 +1246,8 @@ def _panel_exportar():
                 use_container_width = True,
             )
     with col_c2:
-        if prods:
-            df_p = pd.DataFrame(prods)
+        if prods_act:
+            df_p = pd.DataFrame(prods_act)
             st.download_button(
                 "Catálogo de productos (.csv)",
                 data      = df_p.to_csv(index=False, encoding="utf-8"),
@@ -1230,6 +1258,12 @@ def _panel_exportar():
 
     st.write("")
     st.write("**Exportación completa de la base de datos**")
+    st.caption(
+        "A diferencia del informe HTML y los CSV anteriores (acotados a la "
+        "selección actual), esta opción exporta TODAS las tablas de la base "
+        "completa, incluyendo corridas anteriores — uso interno del equipo "
+        "investigador, no para el informe académico."
+    )
     if st.button("Exportar todas las tablas a CSV", use_container_width=True):
         try:
             from modules.reporter import CSVReporter
