@@ -1,0 +1,10 @@
+timestamp,url,method,status_code,robots_allowed,response_time_ms,notes
+2026-07-12T23:18:19.981119,http://127.0.0.1:8126/,GET,200,True,3.81,
+2026-07-12T23:18:21.042979,http://127.0.0.1:8126/,GET,200,True,2.35,
+2026-07-12T23:18:26.651987,http://127.0.0.1:8126/,GET-JS,200,True,2641.89,Renderizado con Playwright (motor=chromium-headless)
+2026-07-12T23:18:26.655722,http://127.0.0.1:8126/,GET,200,True,2.89,
+2026-07-12T23:18:30.400905,http://127.0.0.1:8126/,GET-JS,200,True,2551.33,Renderizado con Playwright (motor=chromium-headless)
+2026-07-12T23:18:30.404434,http://127.0.0.1:8126/,GET,200,True,2.47,
+2026-07-12T23:18:34.088856,http://127.0.0.1:8126/,GET-JS,200,True,2538.68,Renderizado con Playwright (motor=chromium-headless)
+2026-07-12T23:18:34.091772,http://127.0.0.1:8126/,GET,200,True,1.91,
+2026-07-12T23:18:37.654073,http://127.0.0.1:8126/,GET-JS,200,True,2539.43,Renderizado con Playwright (motor=chromium-headless)
